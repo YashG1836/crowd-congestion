@@ -1,31 +1,57 @@
-\documentclass[10pt]{article}
-\usepackage[a4paper,margin=0.85in]{geometry}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern,microtype,amsmath,amssymb,amsthm,booktabs,graphicx,xcolor,enumitem,caption,float}
-\usepackage{algorithm,algpseudocode}
-\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
-\usepackage{fancyhdr}
-\pagestyle{fancy}\fancyhf{}\renewcommand{\headrulewidth}{0pt}
-\fancyhead[L]{\small\itshape Coordinating Crowds: Congestion, Information and Correlated Equilibrium}
-\fancyfoot[C]{\thepage}
-\graphicspath{{../results/figures/}}
+\documentclass{article}
+
+\usepackage{PRIMEarxiv}
+
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{fancyhdr}       % header
+\usepackage{graphicx}       % graphics
+\usepackage{amsmath,amssymb,amsthm,xcolor,enumitem,caption,float}
+\usepackage{algorithm,algpseudocode,needspace,array}
+\hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
+% figures are produced by experiments.py into ../results/figures/ (on Overleaf they can also go in media/)
+\graphicspath{{../results/figures/}{media/}}
+
 \setlist{nosep,leftmargin=*}
 \captionsetup{font=small,labelfont=bf}
-\setlength{\parskip}{2pt}
 \newtheorem{definition}{Definition}
 \newtheorem{proposition}{Proposition}
-\newcommand{\E}{\mathbb{E}}
 
-\title{\vspace{-1.2em}\textbf{Coordinating Crowds at Shared Facilities:\\ Congestion Games, Information Design and Correlated Equilibrium}\\[2pt]
-\large with a case study of the IITGN mess}
-\author{Harsh Kumar Jha\\ \small 24110130 \and Yash Goyal\\ \small 24110399 \and Piyush Kumar Keshri\\ \small 24110260 \and Garv Singhal\\ \small 24110119}
-\date{\small Final report \;|\; Foundations of AI -- Multi-Agent Systems \;|\; IIT Gandhinagar\\
-\small Code, data generator and demo: \url{https://github.com/YashG1836/crowd-congestion}}
+%Header
+\pagestyle{fancy}
+\thispagestyle{empty}
+\rhead{ \textit{ }}
+\chead{}
+\fancyhead[LO]{Coordinating Crowds: Congestion, Information and Correlated Equilibrium}
+
+\renewcommand{\undertitle}{Final Report \;|\; Foundations of AI -- Multi-Agent Systems \;|\; IIT Gandhinagar}
+
+%% Title
+\title{Coordinating Crowds at Shared Facilities: Congestion Games, Information Design and Correlated Equilibrium
+\thanks{\textit{\underline{Code, data generator and demo}}: \url{https://github.com/YashG1836/crowd-congestion}.
+Every figure and number in this report is produced by \texttt{python experiments.py}.}}
+
+\author{
+  Harsh Kumar Jha \\ 24110130
+  \And
+  Yash Goyal \\ 24110399
+  \And
+  Piyush Kumar Keshri \\ 24110260
+  \And
+  Garv Singhal \\ 24110119
+}
+\date{}
 
 \begin{document}
+\raggedbottom
 \maketitle
-\thispagestyle{fancy}
-\vspace{-1.5em}
+
 \begin{abstract}
 \noindent Many people share one bottleneck and each chooses \emph{when} to use it: cars at a bridge, backups on a network
 link, diners at a food court, students at a hostel mess. We model this as an atomic congestion game over time slots
@@ -39,6 +65,8 @@ them, but we prove and verify by linear programming that advice alone cannot bea
 obedience constraints, however, give the smallest reward that makes the optimum self-enforcing: rewards worth
 about 2.7 minutes for 13\% of students cut the average cost from 2.24 to 0.36 minutes.
 \end{abstract}
+
+\keywords{Congestion games \and Correlated equilibrium \and Information design \and Price of anarchy \and No-regret learning}
 
 % ============================================================================
 \section{Introduction}
@@ -313,27 +341,32 @@ mess; dosa tokens or pre-booked slots as non-monetary tolls; choice between mess
 effects are possible); differentially private displays; and a second scan at the queue entrance to measure waits.
 
 % ============================================================================
+\needspace{18\baselineskip}
 \section{Contribution}
+The work was split into four packages, one per member, following the plan in our project brief. All four members
+took part in the modelling decisions, the analysis of results and the writing of this report.
 \begin{table}[H]\centering\small
-\caption{Assigned work packages (from the project brief) and their status in the final repository.}\label{tab:contrib}
-\begin{tabular}{p{2.5cm}p{6.1cm}p{6.6cm}}\toprule
-Member & Assigned task & Status\\\midrule
-Harsh Kumar Jha & S1 data and calibration (scan logs, serving rate, waits); S6 forecasting &
-\textbf{Fulfilled.} Real logs were replaced by a synthetic semester of scans, as agreed with our advisor. Serving
-rate and preference recovery are validated against ground truth, and the N0/N1 nowcasts are evaluated
-(\texttt{mess.py}, E1, E9).\\
-Yash Goyal & S1 preference estimation; S5 Bayesian (incomplete-information) model; Hedge, EXP3; statistics &
-\textbf{Fulfilled.} Preferred-slot estimation, Bayesian NE and value of information, Hedge / EXP3 / regret matching,
-and 30-seed 95\% CIs (\texttt{mess.py}, \texttt{correlated.py}, \texttt{simulate.py}, E7, E8).\\
-Piyush Kumar Keshri & S2 optimum and NE solvers, PoA, checks on Pigou; S4 recommendations $\pi_7$ &
-\textbf{Fulfilled and extended.} NE / Wardrop / LP optimum, PoA, Pigou and toy-game checks; CE and CCE LPs, the
-shuffled recommender, Props.~1--3 and the obedience reward (\texttt{theory.py}, \texttt{game.py},
-\texttt{correlated.py}, E0, E2, E6).\\
-Garv Singhal & S3 simulator, policies $\pi_0$--$\pi_6$, policy experiments, crowd swings, robustness &
-\textbf{Fulfilled.} Day-to-day simulator with $\pi_0$--$\pi_8$, three behaviour regimes, sweeps, delay heatmap and
-the Streamlit demo (\texttt{simulate.py}, \texttt{app.py}, E3--E5).\\\bottomrule
-\end{tabular}\end{table}
-{\sloppy\noindent All members contributed to the analysis and the report. \textbf{Reproducibility:}
+\caption{Work packages, what each member delivered (files in \texttt{crowd/} and experiments), and status.}\label{tab:contrib}
+\begin{tabular}{>{\raggedright\arraybackslash}p{2.3cm}>{\raggedright\arraybackslash}p{10.6cm}>{\raggedright\arraybackslash}p{2.3cm}}\toprule
+Member & Work package and deliverables & Status\\\midrule
+Harsh Kumar Jha & \textbf{Data and case study.} Mess scenario (4 messes, 3 meals, special menus), synthetic roster
+and QR-scan logs, serving-rate and preference calibration, nowcasting N0/N1 (\texttt{mess.py}; E1, E9). &
+\textbf{Fulfilled}$^{a}$\\
+Yash Goyal & \textbf{Incomplete information, learning and statistics.} Bayesian game and value of information;
+Hedge, EXP3 and regret-matching learners; 30-seed confidence intervals; Streamlit demo, README and repository
+(\texttt{correlated.py}, \texttt{simulate.py}, \texttt{app.py}; E7, E8). & \textbf{Fulfilled}\\
+Piyush Kumar Keshri & \textbf{Equilibria and correlated equilibrium.} Toy games; NE, CE and CCE linear programs;
+Nash, Wardrop and optimum solvers; price of anarchy; CE recommender, Propositions 1--3, best-CE LP and obedience
+reward (\texttt{theory.py}, \texttt{game.py}, \texttt{correlated.py}; E0, E2, E6). & \textbf{Fulfilled} (extended with $\pi_8$)\\
+Garv Singhal & \textbf{Simulator and information policies.} Day-to-day simulator, policies $\pi_0$--$\pi_8$, behaviour
+regimes, sweeps, delay and crowd-swing analysis, generic domains (\texttt{simulate.py}, \texttt{domains.py};
+E3--E5). & \textbf{Fulfilled}\\\bottomrule
+\end{tabular}
+
+\vspace{2pt}\raggedright\footnotesize $^{a}$As agreed with our advisor, real scan logs were replaced by a synthetic
+semester, and the manual queue-timing study by the generator's ground-truth waits.
+\end{table}
+{\sloppy\noindent\textbf{Reproducibility:}
 \texttt{pip install -r requirements.txt; pytest -q} (54 checks); \texttt{python experiments.py} regenerates every
 figure and number in this report (\texttt{results/RESULTS.md}); \texttt{streamlit run app.py} opens the demo.\par}
 

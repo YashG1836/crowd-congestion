@@ -97,7 +97,7 @@ crowd/            the library, one file per layer
 app.py            Streamlit demo
 experiments.py    experiments E0-E9 -> results/ (figures + RESULTS.md)
 tests/            tests for every quoted claim
-report/           final LaTeX report (main.tex, main.pdf)
+report/           final LaTeX report on the PRIMEarxiv template (main.tex, main.pdf)
 DESIGN.md         the full design
 ```
 

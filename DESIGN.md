@@ -358,11 +358,13 @@ differentially private displays (our π3 suggests private noise can help);
 other campus resources (library, gym, laundry, shuttle); a second scan at the
 queue entrance to measure waits directly.
 
-## 11. Work split (from the project brief)
+## 11. Work split
 
-| Member | Package | Files |
-|---|---|---|
-| Harsh Kumar Jha | data, serving rate and waits, forecasting | `mess.py` (logs, calibration, nowcasting), E1, E9 |
-| Yash Goyal | preferences, Bayesian model, Hedge/EXP3, statistics | `correlated.py` (Bayesian), `simulate.py` (learners), E7, E8 |
-| Piyush Kumar Keshri | optimum and NE solvers, PoA, Pigou, recommendations | `theory.py`, `game.py`, `correlated.py`, E0, E2, E6 |
-| Garv Singhal | simulator, policies, swings, robustness | `simulate.py`, E3-E5 |
+One package per member; everyone shares modelling decisions, analysis and the report.
+
+| Member | Package | Files | Experiments |
+|---|---|---|---|
+| Harsh Kumar Jha | Data and case study: mess scenario, synthetic scan logs, calibration, nowcasting | `mess.py` | E1, E9 |
+| Yash Goyal | Incomplete information, learning, statistics; demo, README, repository | `correlated.py` (Bayesian), `simulate.py` (learners), `app.py` | E7, E8 |
+| Piyush Kumar Keshri | Equilibria and correlated equilibrium: toy games, NE/CE/CCE LPs, solvers, PoA, recommender, obedience reward | `theory.py`, `game.py`, `correlated.py` | E0, E2, E6 |
+| Garv Singhal | Simulator and information policies: pi0-pi8, behaviour regimes, sweeps, delay, generic domains | `simulate.py`, `domains.py` | E3, E4, E5 |
