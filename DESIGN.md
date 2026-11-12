@@ -317,7 +317,7 @@ crowd-congestion/
 │   ├── domains.py         generic domains (road, network, restaurant, gym, mess) + synthetic populations
 │   ├── mess.py            Layer 4: IITGN scenario, synthetic scan logs, calibration, nowcasting
 │   └── viz.py             one colour language for figures and the app
-├── app.py                 Streamlit demo (7 pages)
+├── app.py                 Streamlit demo (7 pages), live at https://crowd-congestion.streamlit.app/
 ├── experiments.py         E0-E9 -> results/
 ├── results/               figures/*.png and RESULTS.md (generated)
 ├── tests/test_crowd.py    54 checks of every claim
