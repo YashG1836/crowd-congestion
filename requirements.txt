@@ -1,3 +1,4 @@
+# Python packages for the library, experiments, tests and the Streamlit lab
 numpy>=1.26
 scipy>=1.11
 pandas>=2.0
