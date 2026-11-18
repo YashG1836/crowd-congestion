@@ -207,3 +207,101 @@ Expected cost: no announcement (Bayesian Nash) 4.47; slow night announced 3.37; 
 | lunch     | special |                 43.67 |                 3.36 |               3.56 |
 | dinner    | normal  |                 42.28 |                 4.41 |               4.58 |
 | dinner    | special |                 43.41 |                 4.37 |               3.63 |
+
+## E10 Dominance and backward induction
+
+- Dinner game with Late cost 1.5: survivors [['Peak', 'Late'], ['Peak', 'Late']]; no strictly dominated action; pure NE ['(Peak, Late)', '(Late, Peak)']
+- Dinner game with Late cost 2.5: survivors [['Peak'], ['Peak']]; Student 1: 'Late' is strictly dominated by 'Peak'; Student 2: 'Late' is strictly dominated by 'Peak'; pure NE ['(Peak, Peak)']
+- Sequential dinner game (student 2 sees student 1 on a live counter): SGPE path ['Peak', 'Late'], costs [1.0, 1.5]; Nash equilibria of its normal form: ['(Peak, do the opposite)', '(Peak, always Late)', '(Late, always Peak)'] (only the first is subgame perfect: 'always Late' is a wrong reply after Late, and 'always Peak' is a threat student 2 would not carry out).
+
+## E11 Students as bandit / RL learners (300 days)
+
+| learner                             | feedback          |   mean_cost |   mean_wait |   swing |   ext_regret |   swap_regret |
+|:------------------------------------|:------------------|------------:|------------:|--------:|-------------:|--------------:|
+| epsilon-greedy, Monte Carlo average | bandit (own wait) |       1.919 |       0.73  |   0.022 |        1.136 |         1.141 |
+| epsilon-greedy, TD (step 0.1)       | bandit (own wait) |       2.097 |       1.159 |   0.023 |        0.697 |         0.709 |
+| UCB1                                | bandit (own wait) |       3.612 |       3.612 |   0     |        1.75  |         2.214 |
+| EXP3 (adversarial bandit)           | bandit (own wait) |       3.985 |       0.461 |   0.062 |        5.127 |         5.127 |
+| Hedge (full information)            | full              |       2.294 |       2.001 |   0.016 |        0.181 |         0.186 |
+| Regret matching (full information)  | full              |       2.314 |       2.021 |   0.004 |        0.02  |         0.028 |
+
+## E12 Go-now-or-wait MDP within an evening
+
+|   display_delay_min |   share_using |   all |   users |   non_users |   max_queue |
+|--------------------:|--------------:|------:|--------:|------------:|------------:|
+|                   0 |          0    | 3.771 | nan     |       3.771 |        80.7 |
+|                   0 |          0.1  | 3.445 |   3.018 |       3.49  |        77.9 |
+|                   0 |          0.25 | 3.175 |   2.917 |       3.256 |        74.8 |
+|                   0 |          0.5  | 2.932 |   2.843 |       3.02  |        70.6 |
+|                   0 |          0.75 | 2.745 |   2.712 |       2.839 |        67.9 |
+|                   0 |          1    | 2.752 |   2.752 |     nan     |        67.5 |
+|                   2 |          0    | 3.771 | nan     |       3.771 |        80.7 |
+|                   2 |          0.1  | 3.483 |   3.144 |       3.518 |        78.9 |
+|                   2 |          0.25 | 3.269 |   3.125 |       3.315 |        76.9 |
+|                   2 |          0.5  | 3.074 |   3.07  |       3.079 |        72.8 |
+|                   2 |          0.75 | 3.04  |   3.044 |       3.024 |        69.9 |
+|                   2 |          1    | 3.274 |   3.274 |     nan     |        79.2 |
+|                   5 |          0    | 3.771 | nan     |       3.771 |        80.7 |
+|                   5 |          0.1  | 3.531 |   3.387 |       3.546 |        79.1 |
+|                   5 |          0.25 | 3.345 |   3.404 |       3.326 |        77.5 |
+|                   5 |          0.5  | 3.356 |   3.574 |       3.14  |        74.8 |
+|                   5 |          0.75 | 3.38  |   3.461 |       3.144 |        76   |
+|                   5 |          1    | 3.678 |   3.678 |     nan     |        85.2 |
+|                  10 |          0    | 3.771 | nan     |       3.771 |        80.7 |
+|                  10 |          0.1  | 3.612 |   3.774 |       3.595 |        80.3 |
+|                  10 |          0.25 | 3.501 |   3.751 |       3.422 |        79.6 |
+|                  10 |          0.5  | 3.623 |   4.056 |       3.193 |        78.6 |
+|                  10 |          0.75 | 4.034 |   4.291 |       3.272 |        88.4 |
+|                  10 |          1    | 4.835 |   4.835 |     nan     |       115.2 |
+
+## E13 Who causes the queue (Shapley value, core)
+
+**normal night**: total waiting 2449 min; core empty: True (least-core epsilon 965 min); supermodular: True
+
+| group   |   students |   caused (Shapley) per student |   suffered per student |
+|:--------|-----------:|-------------------------------:|-----------------------:|
+| 19:30   |         12 |                          0     |                  0     |
+| 19:40   |         28 |                          0     |                  0     |
+| 19:50   |         84 |                          0     |                  0     |
+| 20:00   |        128 |                          5.997 |                  2.111 |
+| 20:10   |        130 |                          7.842 |                  6.444 |
+| 20:20   |         83 |                          5.496 |                  8.278 |
+| 20:30   |         71 |                          2.409 |                  6.833 |
+| 20:40   |         48 |                          0.714 |                  3.444 |
+| 20:50   |         35 |                          0.017 |                  0.101 |
+| 21:00   |         23 |                          0     |                  0     |
+| 21:10   |         21 |                          0     |                  0     |
+| 21:20   |         15 |                          0     |                  0     |
+
+**special night**: total waiting 12072 min; core empty: True (least-core epsilon 4763 min); supermodular: True
+
+| group   |   students |   caused (Shapley) per student |   suffered per student |
+|:--------|-----------:|-------------------------------:|-----------------------:|
+| 19:30   |         28 |                          0     |                  0     |
+| 19:40   |         62 |                          0     |                  0     |
+| 19:50   |        145 |                         17.953 |                  5.069 |
+| 20:00   |        183 |                         27.026 |                 17.847 |
+| 20:10   |        107 |                         22.076 |                 27.986 |
+| 20:20   |         69 |                         16.652 |                 30.208 |
+| 20:30   |         56 |                         11.52  |                 28.889 |
+| 20:40   |         37 |                          7.459 |                 25.347 |
+| 20:50   |         16 |                          4.325 |                 19.028 |
+| 21:00   |         12 |                          1.79  |                 10.972 |
+
+## E14 Fairness: who carries the cost of coordination?
+
+| group               |   selfish (Nash) |   optimum, no reward |   optimum + obedience reward |   ... + Shapley-proportional fee |
+|:--------------------|-----------------:|---------------------:|-----------------------------:|---------------------------------:|
+| flexible (beta 1.5) |            2.154 |                1.213 |                        0.025 |                            0.382 |
+| average (beta 3)    |            2.333 |                0.047 |                        0.001 |                            0.353 |
+| rigid (beta 6)      |            2.142 |                0     |                        0     |                            0.342 |
+| prefer 20:00-20:30  |            3.381 |                0.59  |                        0.012 |                            0.582 |
+| prefer other times  |            0.461 |                0     |                        0     |                            0.013 |
+| everyone            |            2.235 |                0.358 |                        0.007 |                            0.358 |
+
+Reward budget 0.351 min per student per meal. Students worse off than under Nash (of 678): {'optimum, no reward': 36, 'optimum + obedience reward': 0, '... + Shapley-proportional fee': 83}; largest loss in seconds: {'optimum, no reward': 3.0, 'optimum + obedience reward': 0.0, '... + Shapley-proportional fee': 2.5}.
+
+## E15 Robust policy choice (minimax with alpha-beta pruning)
+
+- all policies: choose **pi8 Optimum as advice + obedience reward** (worst case 0.358 min); alpha-beta simulated 14 of 30 (policy, regime) pairs; same decision as full minimax: True
+- information only (no rewards): choose **pi0 No information** (worst case 2.106 min); alpha-beta simulated 10 of 24 (policy, regime) pairs; same decision as full minimax: True

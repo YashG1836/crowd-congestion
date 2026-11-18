@@ -524,3 +524,150 @@ def simulate(k: float, d: int, steps: int = 40, y0: float = 1.0) -> np.ndarray:
     for t in range(steps - 1):
         y[t + 1] = y[t] - k * y[max(t - d, 0)]
     return y
+
+
+# ============================================================================
+# Dominance (lecture: normal form and dominance).
+#
+# Action a of player i is STRICTLY dominated by b if b costs strictly less than
+# a against every combination of the others' (remaining) actions. A rational
+# player never uses a strictly dominated action, so we can delete it and repeat:
+# iterated elimination of strictly dominated strategies (IESDS). If one profile
+# survives, the game is "dominance solvable".
+# ============================================================================
+def iterated_elimination(game: NormalFormGame, strict: bool = True) -> tuple[list[list[int]], list[str]]:
+    """IESDS (or weak dominance if strict=False). Returns surviving actions per player and a log."""
+    alive = [list(range(m)) for m in game.shape]
+    log: list[str] = []
+    changed = True
+    while changed:
+        changed = False
+        for i in range(game.n_players):
+            others = [alive[j] for j in range(game.n_players) if j != i]
+            for a in list(alive[i]):
+                for b in alive[i]:
+                    if a == b:
+                        continue
+                    diffs = []
+                    for rest in itertools.product(*others):
+                        prof_a = list(rest)
+                        prof_a.insert(i, a)
+                        prof_b = list(rest)
+                        prof_b.insert(i, b)
+                        diffs.append(game.cost(i, tuple(prof_b)) - game.cost(i, tuple(prof_a)))
+                    diffs = np.array(diffs)
+                    dominated = np.all(diffs < 0) if strict else (np.all(diffs <= 0) and np.any(diffs < 0))
+                    if dominated:
+                        alive[i].remove(a)
+                        log.append(f"{game.player_names[i]}: '{game.action_names[i][a]}' is "
+                                   f"{'strictly' if strict else 'weakly'} dominated by '{game.action_names[i][b]}'")
+                        changed = True
+                        break
+    return alive, log
+
+
+# ============================================================================
+# Extensive form, backward induction and subgame-perfect equilibrium
+# (lecture: extensive form, backward induction and SGPE).
+#
+# A live counter *during* the evening lets a later student see what earlier
+# students did: the simultaneous dinner game becomes a sequential game with
+# perfect information. Backward induction (solve the last mover first) gives
+# the subgame-perfect equilibrium (SGPE). Some Nash equilibria of the
+# sequential game rely on threats that are not credible; SGPE removes them.
+# ============================================================================
+@dataclass
+class Node:
+    """A node of a perfect-information game tree. Leaves carry a cost vector."""
+
+    player: int | None = None  # who moves here (None for a leaf)
+    children: dict[str, "Node"] = field(default_factory=dict)
+    costs: tuple[float, ...] | None = None  # at leaves
+    label: str = ""
+
+
+def backward_induction(node: Node) -> tuple[tuple[float, ...], dict[str, str], list[str]]:
+    """Solve a perfect-information tree. Returns (equilibrium costs, strategy at every node, path)."""
+    if node.costs is not None:
+        return node.costs, {}, []
+    best_action, best = None, None
+    strategy: dict[str, str] = {}
+    paths = {}
+    for action, child in node.children.items():
+        value, sub, path = backward_induction(child)
+        strategy.update(sub)
+        paths[action] = path
+        if best is None or value[node.player] < best[node.player]:
+            best_action, best = action, value
+    strategy[node.label] = best_action
+    return best, strategy, [best_action] + paths[best_action]
+
+
+def sequential_dinner_game(late_cost: float = 1.5) -> Node:
+    """Student 1 decides first; student 2 sees the choice (on the live counter) and then decides."""
+    g = dinner_game(late_cost)
+    names = ["Peak", "Late"]
+    root = Node(player=0, label="S1")
+    for a, an in enumerate(names):
+        mid = Node(player=1, label=f"S2 after S1={an}")
+        for b, bn in enumerate(names):
+            mid.children[bn] = Node(costs=(g.cost(0, (a, b)), g.cost(1, (a, b))), label=f"({an}, {bn})")
+        root.children[an] = mid
+    return root
+
+
+def sequential_dinner_normal_form(late_cost: float = 1.5) -> NormalFormGame:
+    """The same sequential game written in normal form: student 2's strategy is a plan for both cases.
+
+    Student 2's strategies are (reply if S1=Peak, reply if S1=Late): PP, PL, LP, LL.
+    """
+    g = dinner_game(late_cost)
+    plans = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    costs = np.zeros((2, 2, 4))
+    for a in range(2):
+        for j, plan in enumerate(plans):
+            b = plan[a]
+            costs[0, a, j] = g.cost(0, (a, b))
+            costs[1, a, j] = g.cost(1, (a, b))
+    names2 = ["always Peak", "copy S1", "do the opposite", "always Late"]
+    return NormalFormGame(costs, action_names=[["Peak", "Late"], names2],
+                          player_names=["Student 1 (first)", "Student 2 (sees S1)"], name="Sequential dinner game")
+
+
+# ============================================================================
+# Minimax with alpha-beta pruning (lecture: alpha-beta pruning).
+#
+# A robust designer picks the policy whose WORST case over unknown behaviour is
+# best: min over policies of max over behaviour regimes. This is a two-level
+# game tree (designer = MIN, nature = MAX). Each leaf is an expensive
+# simulation. Alpha-beta skips leaves that cannot change the decision: once
+# one regime already makes a policy worse than the best policy found so far,
+# the remaining regimes of that policy need not be simulated.
+# ============================================================================
+@dataclass
+class SearchStats:
+    value: float
+    choice: object
+    leaves_evaluated: int
+    leaves_total: int
+    pruned: list[tuple[object, object]] = field(default_factory=list)
+
+
+def minimax_alphabeta(options: list, scenarios: list, evaluate, prune: bool = True) -> SearchStats:
+    """min over options of max over scenarios of evaluate(option, scenario), with alpha-beta pruning.
+
+    ``evaluate`` is called lazily; the number of calls is reported. With prune=False
+    this is plain minimax (every leaf evaluated); both return the same decision.
+    """
+    best_value, best_choice, calls, pruned = np.inf, None, 0, []
+    for opt in options:
+        worst = -np.inf  # MAX node value so far
+        for k, sc in enumerate(scenarios):
+            calls += 1
+            worst = max(worst, evaluate(opt, sc))
+            if prune and worst >= best_value:  # beta cut-off: this option cannot beat the best one
+                pruned += [(opt, s) for s in scenarios[k + 1:]]
+                break
+        if worst < best_value:
+            best_value, best_choice = worst, opt
+    return SearchStats(best_value, best_choice, calls, len(options) * len(scenarios), pruned)

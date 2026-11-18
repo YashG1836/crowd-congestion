@@ -158,6 +158,9 @@ class Recommend(Policy):
                  gains - bonus > tolerance. With bonus = the obedience incentive
                  the recommendation is a CE of the rewarded game (pi8).
     fallback     what non-users look at (default: their own memory).
+    rotate       True (default): a new shuffle every day, so inconvenient slots
+                 rotate among similar people. False: the first day's assignment
+                 is kept for ever (used to measure fairness).
     """
 
     target: np.ndarray = None
@@ -170,17 +173,21 @@ class Recommend(Policy):
     tolerance: float = 0.1
     fallback: Policy = field(default_factory=NoInfo)
     name: str = "pi7 CE recommendation"
+    rotate: bool = True
 
     def setup(self, n, T, rng):
         super().setup(n, T, rng)
         self.fallback.setup(n, T, rng)
         self.users = rng.random(n) < self.compliance
+        self._fixed = None
 
     def estimate(self, history, memory, rng):
         return self.fallback.estimate(history, memory, rng)
 
     def recommendation(self, rng):
-        rec = recommend(rng, self.type_of, self.target)
+        if self.rotate or getattr(self, "_fixed", None) is None:
+            self._fixed = recommend(rng, self.type_of, self.target)
+        rec = self._fixed
         follow = self.users.copy()
         if self.rational and self.gains is not None:
             k = self.type_of
@@ -331,6 +338,79 @@ class RegretMatching(Behaviour):
         self.days[idx] += 1
 
 
+@dataclass
+class EpsilonGreedy(Behaviour):
+    """Bandit learner (lectures: MAB, RL Monte Carlo, temporal difference).
+
+    Each person keeps an estimate Q[t] of their own cost in slot t and only
+    learns about the slot they visit (bandit feedback). With probability eps
+    they explore a random slot, otherwise they go to the cheapest estimate.
+        step = None  -> sample-average (Monte Carlo) estimate: Q += (c - Q) / N
+        step = alpha -> constant step size (TD(0) / exponential recency), which
+                        tracks a NON-stationary environment -- other students
+                        are learning too, so the crowd keeps changing.
+    """
+
+    eps: float = 0.05
+    step: float | None = None
+    name: str = ""
+    uses_estimate = False
+
+    def __post_init__(self) -> None:
+        kind = "Monte Carlo average" if self.step is None else f"TD, step {self.step:g}"
+        self.name = self.name or f"epsilon-greedy ({kind})"
+
+    def setup(self, tau, beta, T, rng):
+        super().setup(tau, beta, T, rng)
+        self.Q = self.sched.copy()  # optimistic start: no queue anywhere
+        self.N = np.zeros_like(self.Q)
+
+    def choose(self, est, prev, rng):
+        n = len(prev)
+        greedy = np.argmin(self.Q + 1e-9 * rng.random(self.Q.shape), axis=1)
+        explore = rng.random(n) < self.eps
+        return np.where(explore, rng.integers(0, self.T, n), greedy)
+
+    def update(self, slots, cost_vectors, attended, rng):
+        idx = np.flatnonzero(attended)
+        t = slots[idx]
+        c = cost_vectors[idx, t]
+        self.N[idx, t] += 1
+        a = 1.0 / self.N[idx, t] if self.step is None else self.step
+        self.Q[idx, t] += a * (c - self.Q[idx, t])
+
+
+@dataclass
+class UCB(Behaviour):
+    """UCB1 for costs (lecture: MAB): pick argmin of  mean - c * sqrt(ln t / N)  (optimism under uncertainty)."""
+
+    c: float = 2.0  # exploration strength, in minutes
+    name: str = ""
+    uses_estimate = False
+
+    def __post_init__(self) -> None:
+        self.name = self.name or f"UCB1 (c={self.c:g})"
+
+    def setup(self, tau, beta, T, rng):
+        super().setup(tau, beta, T, rng)
+        self.S = np.zeros((len(tau), T))
+        self.N = np.zeros((len(tau), T))
+        self.t = np.zeros(len(tau))
+
+    def choose(self, est, prev, rng):
+        mean = np.divide(self.S, self.N, out=np.zeros_like(self.S), where=self.N > 0)
+        bonus = self.c * np.sqrt(np.log(np.maximum(self.t, 1))[:, None] / np.maximum(self.N, 1e-9))
+        score = np.where(self.N > 0, mean - bonus, -np.inf)  # untried slots first
+        return np.argmin(score + 1e-9 * rng.random(score.shape), axis=1)
+
+    def update(self, slots, cost_vectors, attended, rng):
+        idx = np.flatnonzero(attended)
+        t = slots[idx]
+        self.S[idx, t] += cost_vectors[idx, t]
+        self.N[idx, t] += 1
+        self.t[idx] += 1
+
+
 # ============================================================================
 # Day-to-day simulator: the same people choose a slot every day.
 #
@@ -461,3 +541,95 @@ def summarise(res: SimResult, congestion: CongestionModel) -> dict[str, float]:
         "ext_regret": float(res.ext_regret_curve[-1]),
         "swap_regret": float(res.swap_regret_curve[-1]),
     }
+
+
+# ============================================================================
+# Within one evening: "go now or wait?" (lecture: Markov decision processes).
+#
+# With a live counter, a student who is ready at minute r looks at the queue q
+# every minute and chooses GO (join now, wait q/mu minutes) or WAIT (pay a delay
+# cost d per minute -- d = beta / slot length -- and look again next minute).
+# Everyone else arrives at an expected rate lam[m] per minute (Poisson), and the
+# queue moves as q' = max(0, q + arrivals - mu). This is a finite-horizon MDP:
+#     V_M(q) = q/mu                                   (the counter closes: go)
+#     V_m(q) = min( q/mu ,  d + E[ V_{m+1}(q') ] )     (Bellman equation)
+# solved exactly by backward induction (value iteration over a finite horizon).
+# The optimal policy is a threshold: GO iff q <= q*_m.
+# The catch (multi-agent): the MDP assumes the crowd does not react. If many
+# students use the same threshold, they all go the moment the queue dips --
+# the rush moves, as in El Farol. `evening` simulates this minute by minute.
+# ============================================================================
+from math import lgamma  # noqa: E402
+
+
+@dataclass
+class GoWaitPolicy:
+    thresholds: np.ndarray  # (M,) go iff displayed queue <= thresholds[m]
+    value: np.ndarray  # (M+1, Q) optimal expected cost-to-go
+    delay_cost: float
+
+
+def solve_go_wait(arrival_rate: np.ndarray, service_rate: float, delay_cost: float, q_max: int = 400) -> GoWaitPolicy:
+    """Backward induction for the go-now-or-wait MDP (one student, the crowd is exogenous)."""
+    M = len(arrival_rate)
+    q = np.arange(q_max + 1, dtype=float)
+    V = np.zeros((M + 1, q_max + 1))
+    V[M] = q / service_rate
+    thresholds = np.zeros(M)
+    for m in range(M - 1, -1, -1):
+        lam = max(arrival_rate[m], 1e-9)
+        a = np.arange(int(lam + 8 * np.sqrt(lam) + 10))
+        logp = a * np.log(lam) - lam - np.array([lgamma(k + 1) for k in a])
+        pmf = np.exp(logp)
+        pmf /= pmf.sum()
+        nxt = np.clip(np.rint(q[:, None] + a[None, :] - service_rate), 0, q_max).astype(int)
+        wait_value = delay_cost + V[m + 1][nxt] @ pmf
+        go_value = q / service_rate
+        V[m] = np.minimum(go_value, wait_value)
+        go = go_value <= wait_value
+        thresholds[m] = q[go].max() if go.any() else -1
+    return GoWaitPolicy(thresholds, V, delay_cost)
+
+
+@dataclass
+class EveningResult:
+    queue: np.ndarray  # (minutes,) queue at the start of each minute
+    arrivals: np.ndarray  # (minutes,) people joining the queue each minute
+    cost: np.ndarray  # (n,) wait + delay cost of each person
+    wait: np.ndarray  # (n,) queueing time
+    delay: np.ndarray  # (n,) minutes waited before going
+    uses_display: np.ndarray  # (n,) bool
+
+
+def evening(ready: np.ndarray, delay_cost: np.ndarray, uses_display: np.ndarray, service_rate: float,
+            policies: dict[float, GoWaitPolicy], minutes: int, display_delay: int = 0) -> EveningResult:
+    """Minute-by-minute evening. Non-users go when ready; users follow their MDP threshold.
+
+    ready[i] is the minute person i is ready; the display shows the queue
+    `display_delay` minutes ago. The counter closes at `minutes`: everyone still
+    waiting goes then. Waiting inside a minute uses the fluid average
+    (q + max(0, a - mu)/2) / mu.
+    """
+    n = len(ready)
+    gone = np.full(n, -1)
+    wait = np.zeros(n)
+    horizon = minutes + int(np.ceil(n / service_rate)) + 5
+    queue = np.zeros(horizon + 1)
+    arrivals = np.zeros(horizon)
+    thr = np.array([policies[d].thresholds for d in delay_cost]) if len(policies) else None
+    for m in range(horizon):
+        q = queue[m]
+        shown = queue[max(m - display_delay, 0)]
+        waiting = (gone < 0) & (ready <= m)
+        if m < minutes:
+            go = waiting & (~uses_display | (shown <= thr[np.arange(n), m]))
+        else:
+            go = waiting
+        a = int(go.sum())
+        gone[go] = m
+        wait[go] = (q + max(0.0, a - service_rate) / 2) / service_rate
+        arrivals[m] = a
+        queue[m + 1] = max(0.0, q + a - service_rate)
+    delay = gone - ready
+    cost = wait + delay_cost * delay
+    return EveningResult(queue[:horizon], arrivals, cost, wait, delay, uses_display)

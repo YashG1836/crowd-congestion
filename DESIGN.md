@@ -40,22 +40,27 @@ The plan goes from general to specific:
 
 ---
 
-## 2. Concepts from Foundations of AI and where they appear
+## 2. Topics of the course and where they appear
 
-| Concept | Used for | Code | Result |
+The course covered (in order): intelligent agents; normal form and dominance; pure and mixed Nash
+equilibrium; extensive form, backward induction and SGPE; alpha-beta pruning; correlated equilibrium; core;
+Shapley value; MDPs; multi-armed bandits; RL (Monte Carlo, off-policy, temporal difference, approximation);
+fairness. Each one has a concrete job in the project:
+
+| Topic | Used for | Code | Result |
 |---|---|---|---|
-| Normal-form games, pure & mixed Nash equilibrium | dinner game, intersection | `theory.py` | E0 |
-| Congestion games, Rosenthal potential, best-response dynamics | the selfish outcome at scale | `game.py` | E2 |
-| Wardrop equilibrium, method of successive averages (fictitious play) | large-population equilibrium | `game.py` | E2 |
-| Social optimum (linear programming), price of anarchy / stability, Pigou | what selfishness costs | `theory.py`, `game.py` | E0, E2 |
-| **Correlated & coarse correlated equilibrium (LP)** | mediator, traffic light, recommendations | `theory.py`, `correlated.py` | E0, E6 |
-| Mediators, obedience constraints, information design | the "smart display" | `correlated.py`, `simulate.py` | E3, E6 |
-| Incentive compatibility (price of obedience) | making the optimum self-enforcing | `correlated.py` | E6 |
-| Bayesian games, Bayesian Nash equilibrium, value of information | slow nights nobody announces | `correlated.py` | E8 |
-| Bounded rationality: logit / quantal response | how students react | `simulate.py` | E3-E5 |
-| No-regret learning: Hedge, EXP3; regret matching (no swap regret) | learning to an equilibrium | `theory.py`, `simulate.py` | E0, E7 |
-| Linear dynamical systems / stability | why delayed displays oscillate | `theory.py` | E0, E5 |
-| Estimation from data (learning unknown parameters), forecasting | serving rate, preferences, nowcasts from scans | `mess.py` | E1, E9 |
+| Intelligent agents | students and the mess office as agents (percepts: display; actions: slot; performance: cost) | all | - |
+| Normal form & dominance | iterated elimination: when Late costs more than any peak, everyone rushes (Pigou) | `theory.py` | E10 |
+| Pure & mixed Nash equilibrium | dinner game, intersection; best-response dynamics for 678 students; Wardrop via fictitious play | `theory.py`, `game.py` | E0, E2 |
+| Extensive form, backward induction, SGPE | a counter that shows earlier choices makes the game sequential; non-credible threats | `theory.py` | E10 |
+| Alpha-beta pruning | robust (minimax) choice of display policy over unknown behaviour | `theory.py` | E15 |
+| **Correlated & coarse correlated equilibrium** | LPs for small games; shuffled Nash advice; best-CE LP at scale; price of obedience | `theory.py`, `correlated.py` | E0, E6 |
+| Core & Shapley value | who causes the queue; empty core; Shapley-proportional fees fund the rewards | `correlated.py` | E13, E14 |
+| Markov decision processes | go now or wait with a live counter, solved by backward induction / value iteration | `simulate.py` | E12 |
+| Multi-armed bandits | epsilon-greedy, UCB1, EXP3 students learning from their own waits | `simulate.py` | E11 |
+| RL: Monte Carlo and temporal difference | sample-average vs constant-step estimates in a crowd that keeps changing | `simulate.py` | E11 |
+| Fairness | group parity (flexible vs rigid, peak vs off-peak) and a Pareto check vs selfish play | `correlated.py` | E14 |
+| Also used | price of anarchy (Pigou), Bayesian games, logit response, Hedge / regret matching, delayed-feedback stability, estimation from data | various | E0-E9 |
 
 ---
 
@@ -287,6 +292,27 @@ ground-truth table (slot, arrival, wait) used only to score our estimators.
 
 ---
 
+## 6b. Course-topic extensions
+
+* **Dominance (E10).** `iterated_elimination` removes strictly dominated actions. In the dinner game with
+  Late cost 2.5, Late is dominated by Peak (Peak never costs more than 2), so only (Peak, Peak) survives.
+* **Backward induction (E10).** `sequential_dinner_game` lets student 2 see student 1's choice (a live counter
+  *during* the evening). Backward induction gives the SGPE (Peak, Late) with costs (1, 1.5). The normal form has
+  three NE; (Late, "always Peak") rests on a threat student 2 would not carry out.
+* **Go now or wait (E12).** A ready student sees the queue q each minute: go (wait q/mu) or wait (delay cost
+  d = beta / slot length). With Poisson arrivals of everyone else, V_M(q) = q/mu and
+  V_m(q) = min(q/mu, d + E[V_{m+1}(q')]) is solved by backward induction; the policy is a threshold. A minute-level
+  simulation lets a share of students use it with a counter 0-10 minutes old.
+* **Bandit / RL students (E11).** epsilon-greedy with sample averages (Monte Carlo) or constant step 0.1 (TD), UCB1,
+  EXP3 (own wait only) versus Hedge and regret matching (all waits published).
+* **Shapley value and core (E13).** Players = arrival groups (preferred slot). c(S) = total waiting if only S comes at
+  their preferred slots. Exact Shapley over all 2^12 coalitions; least-core LP (core empty iff epsilon* > 0);
+  supermodularity check.
+* **Fair self-funding scheme (E14).** Recommend the optimum, pay the obedience reward, charge each student
+  budget x their group's Shapley share. Compare groups and count students worse off than under Nash.
+* **Robust choice with alpha-beta (E15).** min over policies of max over behaviour regimes; leaves are
+  simulations; the most adversarial regime is evaluated first; the decision equals full minimax.
+
 ## 7. Questions, hypotheses and experiments
 
 | | Question | Experiment | Answer (see RESULTS.md) |
@@ -298,10 +324,16 @@ ground-truth table (slot, arrival, wait) used only to score our estimators.
 | – | Does publishing data help learning? | E7 | Yes. Hedge/regret matching with published waits settle near Nash (2.29-2.31 min) with swap regret down to 0.19 / 0.03 min per day (close to a CE); EXP3 with only one's own wait stays at 5 min regret after 300 days. |
 | – | Complete vs incomplete information | E8 | Announcing slow nights saves 1.1 min per student on average, but makes *normal* nights worse (0.88 → 2.24): the fear of a slow night was spreading people out. |
 | – | Does calibration work? | E1 | μ within 2-3% when queues form; preferences 97% within one slot at dinner. |
+| – | Dominance and subgame perfection | E10 | L = 2.5: Late dominated, everyone rushes. Sequential game: SGPE (Peak, Late); one NE rests on a non-credible threat. |
+| – | How do bandit / RL students do? | E11 | With published waits Hedge / regret matching reach near-CE (swap regret 0.19 / 0.03). Bandits: MC epsilon-greedy 1.92 (regret 1.14), TD 2.10 (0.71), UCB1 herds (3.61), EXP3 3.99. |
+| – | Does a live counter help within an evening? | E12 | Fresh counter + MDP policy: 3.77 -> 2.75 min. A counter 10 minutes old: 4.84 (worse than none, peak queue 115). |
+| – | Who causes the queue? | E13 | 20:00 group causes 6.0 min each, suffers 2.1; 20:20 group suffers 8.3, causes 5.5. Core empty (least-core 965 min). |
+| – | Is coordination fair? | E14 | Optimum alone: flexible students carry it (1.21 vs 0.00). With rewards nobody loses vs Nash; with Shapley fees budget-balanced, nobody loses > 2.5 s. |
+| – | Robust policy choice | E15 | Alpha-beta = full minimax with 14 of 30 simulations: pi8 (0.36). Information only: no information (2.11), close to CE (2.24). |
 | RQ4 | Can we forecast the next 30 minutes from tonight's scans? | E9 | N0 (historical mean) and N1 (scaled by tonight's scans so far) are within 8-14% of the load; N1 helps when an evening starts unusually (normal breakfasts −13%, special dinners −17%), elsewhere they are within 5%. |
 
 Every experiment is one function in `experiments.py`; figures go to
-`results/figures/`, all numbers to `results/RESULTS.md`.
+`results/figures/`, all numbers to `results/RESULTS.md`, and the website's data to `docs/data.js`.
 
 ---
 
@@ -310,18 +342,19 @@ Every experiment is one function in `experiments.py`; figures go to
 ```
 crowd-congestion/
 ├── crowd/                 the library, one file per layer
-│   ├── theory.py          Layer 1: normal-form games, NE, CE/CCE LPs, Pigou, toy games, learning, delay stability
+│   ├── theory.py          Layer 1: dominance, NE, CE/CCE LPs, backward induction, alpha-beta, Pigou, learning, delay
 │   ├── game.py            Layer 2: congestion models, SlotGame, Nash / Wardrop / optimum / PoA
-│   ├── correlated.py      Layer 2: recommendations, obedience, price of obedience, best-CE LP, Bayesian analysis
-│   ├── simulate.py        Layer 3: policies pi0-pi8, behaviour models, day-to-day simulator
+│   ├── correlated.py      Layer 2: recommendations, obedience, best-CE LP, Shapley/core, fair scheme, Bayesian
+│   ├── simulate.py        Layer 3: policies pi0-pi8, logit/bandit/no-regret students, simulator, go-or-wait MDP
 │   ├── domains.py         generic domains (road, network, restaurant, gym, mess) + synthetic populations
 │   ├── mess.py            Layer 4: IITGN scenario, synthetic scan logs, calibration, nowcasting
 │   └── viz.py             one colour language for figures and the app
-├── app.py                 Streamlit demo (7 pages), live at https://crowd-congestion.streamlit.app/
-├── experiments.py         E0-E9 -> results/
+├── app.py                 Streamlit lab (7 pages), live at https://crowd-congestion.streamlit.app/
+├── docs/                  website (GitHub Pages): index.html + data.js, live at https://yashg1836.github.io/crowd-congestion/
+├── experiments.py         E0-E15 -> results/ and docs/data.js
 ├── results/               figures/*.png and RESULTS.md (generated)
-├── tests/test_crowd.py    54 checks of every claim
-├── report/                final LaTeX report (main.tex -> main.pdf, 8 pages)
+├── tests/test_crowd.py    61 checks of every claim
+├── report/                LaTeX report, PRIMEarxiv (main.tex -> main.pdf, 8 pages; draft1.tex/pdf; screenshots.png)
 ├── DESIGN.md              this document
 └── README.md              tour, results, how to run and host
 ```
@@ -365,6 +398,6 @@ One package per member; everyone shares modelling decisions, analysis and the re
 | Member | Package | Files | Experiments |
 |---|---|---|---|
 | Harsh Kumar Jha | Data and case study: mess scenario, synthetic scan logs, calibration, nowcasting | `mess.py` | E1, E9 |
-| Yash Goyal | Incomplete information, learning, statistics; demo, README, repository | `correlated.py` (Bayesian), `simulate.py` (learners), `app.py` | E7, E8 |
-| Piyush Kumar Keshri | Equilibria and correlated equilibrium: toy games, NE/CE/CCE LPs, solvers, PoA, recommender, obedience reward | `theory.py`, `game.py`, `correlated.py` | E0, E2, E6 |
-| Garv Singhal | Simulator and information policies: pi0-pi8, behaviour regimes, sweeps, delay, generic domains | `simulate.py`, `domains.py` | E3, E4, E5 |
+| Yash Goyal | Learning, uncertainty, statistics, integration: Bayesian game, bandit/TD/no-regret learners, CIs, website, lab, README | `correlated.py` (Bayesian), `simulate.py` (learners), `app.py`, `docs/` | E7, E8, E11 |
+| Piyush Kumar Keshri | Equilibria and cooperation: small games (dominance, NE, SGPE, CE LPs), solvers, PoA, recommender, Shapley/core, fair scheme | `theory.py`, `game.py`, `correlated.py` | E0, E2, E6, E10, E13, E14 |
+| Garv Singhal | Simulator, policies and planning: pi0-pi8, sweeps, delay, go-or-wait MDP, alpha-beta robust choice, domains | `simulate.py`, `domains.py` | E3-E5, E12, E15 |

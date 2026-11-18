@@ -14,10 +14,19 @@ Experiments (each answers one question from DESIGN.md):
     E7  learning    Hedge vs EXP3 vs regret matching (does publishing data help learning?)
     E8  bayes       complete vs incomplete information (value of announcing a slow night)
     E9  nowcast     RQ4: predict the next 30 minutes of scans from tonight's scans so far
+  Course-topic extensions:
+    E10 dominance   iterated elimination of dominated strategies; sequential game, backward induction, SGPE
+    E11 bandits     students as MAB / RL learners: epsilon-greedy (Monte Carlo, TD), UCB1, EXP3, Hedge, RM
+    E12 mdp         within-evening 'go now or wait' MDP (value iteration) and what happens when many use it
+    E13 shapley     who causes the queue: Shapley value and core of the waiting-cost game
+    E14 fairness    individual fairness (daily rotation) and group fairness (who carries the optimum)
+    E15 robust      minimax choice of display policy over behaviour regimes, with alpha-beta pruning
+  Website data: docs/data.js
 """
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -25,17 +34,20 @@ import numpy as np
 import pandas as pd
 
 from crowd import viz
-from crowd.correlated import bayesian_analysis, best_ce, interpolated_schedules, obedience, obedience_incentive
+from crowd.correlated import (bayesian_analysis, best_ce, interpolated_schedules, obedience, obedience_incentive,
+                              fair_scheme, queue_cost_game)
 from crowd.domains import DOMAINS, build
 from crowd.game import FluidQueue, benchmarks
 from crowd.mess import (MEALS, MESSES, arrival_heatmap, estimate_preferred_slots, estimate_service_rate, generate,
                         make_roster, meal_instance, nowcast_errors, preference_accuracy, roster_truth,
                         scans_per_slot)
-from crowd.simulate import EXP3, Coarse, Forecast, Hedge, Live, Logit, Noisy, NoInfo, Partial, Recommend, \
-    RegretMatching, simulate
+from crowd.simulate import (EXP3, UCB, Coarse, EpsilonGreedy, Forecast, Hedge, Live, Logit, Noisy, NoInfo, Partial,
+                            Recommend, RegretMatching, evening, simulate, solve_go_wait)
 from crowd.theory import (critical_responsiveness, dinner_game, hedge, intersection_game, pigou_poa, regret_matching,
                           shared_counter_dynamics)
 from crowd.theory import simulate as delay_sim
+from crowd.theory import (backward_induction, iterated_elimination, minimax_alphabeta, sequential_dinner_game,
+                          sequential_dinner_normal_form)
 
 ROOT = Path(__file__).resolve().parent
 OUT = ROOT / "results"
@@ -492,6 +504,281 @@ def e9_nowcast() -> None:
     SUMMARY["e9"] = pd.DataFrame(rows).round(2).to_dict("records")
 
 
+# =============================================================== E10 dominance, backward induction
+def e10_dominance() -> None:
+    rows = []
+    for L in (1.5, 2.5):
+        g = dinner_game(L)
+        alive, log = iterated_elimination(g)
+        rows.append({"late_cost": L, "surviving": [[g.action_names[i][a] for a in alive[i]] for i in range(2)],
+                     "log": log, "pure_nash": [g.profile_name(x) for x in g.pure_nash()]})
+    value, strategy, path = backward_induction(sequential_dinner_game(1.5))
+    nf = sequential_dinner_normal_form(1.5)
+    nash = [nf.profile_name(x) for x in nf.pure_nash()]
+    SUMMARY["e10"] = {"iesds": rows, "sgpe_costs": list(value), "sgpe_strategy": strategy, "sgpe_path": path,
+                      "sequential_nash": nash}
+
+
+# =============================================================== E11 bandit / RL learners
+LEARNERS = {
+    "epsilon-greedy, Monte Carlo average": lambda: EpsilonGreedy(0.05, None),
+    "epsilon-greedy, TD (step 0.1)": lambda: EpsilonGreedy(0.05, 0.1),
+    "UCB1": lambda: UCB(2.0),
+    "EXP3 (adversarial bandit)": lambda: EXP3(0.05),
+    "Hedge (full information)": lambda: Hedge(0.05),
+    "Regret matching (full information)": lambda: RegretMatching(),
+}
+
+
+def e11_bandits(seeds: int) -> None:
+    plt = viz.plt
+    inst, b = standard_instance()
+    g = inst.game
+    rows = []
+    for name, make in LEARNERS.items():
+        ms = [simulate(g.congestion, inst.tau, inst.beta, Live(), make(), days=300, burn_in=100, seed=s).metrics
+              for s in range(max(3, seeds // 3))]
+        row = {"learner": name, "feedback": "full" if ("Hedge" in name or "Regret" in name) else "bandit (own wait)"}
+        for k in ("mean_cost", "mean_wait", "swing", "ext_regret", "swap_regret"):
+            row[k] = float(np.mean([m[k] for m in ms]))
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    SUMMARY["e11"] = {"table": df.round(3).to_dict("records"), "nash": b.best_nash.social_cost / g.n}
+    fig, axes = plt.subplots(1, 2, figsize=(13, 3.6))
+    y = np.arange(len(df))
+    colors = [viz.SERIES[3] if f.startswith("bandit") else viz.CE for f in df.feedback]
+    axes[0].barh(y, df.mean_cost, color=colors, height=0.6)
+    axes[0].axvline(b.best_nash.social_cost / g.n, color=viz.NE, ls="--", lw=1.2)
+    axes[0].text(b.best_nash.social_cost / g.n, len(df) - 0.4, " Nash", color=viz.NE, fontsize=9)
+    axes[0].set(title="Average cost per student (days 100-300)", xlabel="minutes")
+    axes[1].barh(y, df.swap_regret, color=colors, height=0.6)
+    axes[1].set(title="Swap regret (0 = correlated equilibrium)", xlabel="minutes per day")
+    for ax in axes:
+        ax.set_yticks(y, df.learner)
+        ax.invert_yaxis()
+    axes[1].set_yticklabels([])
+    axes[0].text(0.99, 0.02, "orange: bandit feedback   blue: full feedback", transform=axes[0].transAxes,
+                 ha="right", fontsize=8, color=viz.TEXT_2)
+    fig.tight_layout()
+    save(fig, "e11_bandits")
+
+
+# =============================================================== E12 MDP within an evening
+def _evening_setup(seed: int):
+    inst = meal_instance("Jaiswal", "dinner", "normal")
+    rng = np.random.default_rng(seed)
+    ready = (inst.tau * 10 + rng.uniform(0, 10, len(inst.tau))).astype(int)
+    return inst, rng, ready
+
+
+def e12_mdp(seeds: int) -> None:
+    plt = viz.plt
+    inst, rng, ready = _evening_setup(0)
+    mu = inst.game.congestion.service_rate
+    lam = np.bincount(ready, minlength=120)[:120].astype(float)  # forecast: everyone goes when ready
+    dcost = inst.beta / 10.0  # beta minutes per 10-minute slot -> per minute
+    pols = {d: solve_go_wait(lam, mu, d) for d in np.unique(dcost)}
+    shares = [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]
+    delays = [0, 2, 5, 10]
+    rows = []
+    for d in delays:
+        for sh in shares:
+            vals = []
+            for s in range(max(3, seeds // 3)):
+                _, r2, rd = _evening_setup(s)
+                use = r2.random(len(rd)) < sh
+                res = evening(rd, dcost, use, mu, pols, 120, display_delay=d)
+                vals.append((res.cost.mean(), res.cost[use].mean() if use.any() else np.nan,
+                             res.cost[~use].mean() if (~use).any() else np.nan, res.queue.max()))
+            with np.errstate(all="ignore"):
+                arr = np.array(vals, dtype=float)
+                v = [np.nanmean(arr[:, j]) if np.isfinite(arr[:, j]).any() else np.nan for j in range(arr.shape[1])]
+            rows.append({"display_delay_min": d, "share_using": sh, "all": v[0], "users": v[1], "non_users": v[2],
+                         "max_queue": v[3]})
+    df = pd.DataFrame(rows)
+    traces = {}
+    for label, sh, d in [("no display", 0.0, 0), ("everyone, fresh counter", 1.0, 0),
+                         ("everyone, 5-min-old counter", 1.0, 5)]:
+        use = np.random.default_rng(1).random(len(ready)) < sh
+        traces[label] = evening(ready, dcost, use, mu, pols, 120, display_delay=d).queue[:150]
+    SUMMARY["e12"] = {"table": df.round(3).to_dict("records"),
+                      "thresholds": {f"{d:g}": pols[d].thresholds[:120].tolist() for d in pols},
+                      "traces": {k: v.round(2).tolist() for k, v in traces.items()},
+                      "labels": inst.game.slot_labels}
+    fig, axes = plt.subplots(1, 3, figsize=(13.5, 3.6))
+    minutes = np.arange(120)
+    for (d, pol), c in zip(sorted(pols.items()), [viz.OPT, viz.CE, viz.NE]):
+        axes[0].plot(minutes, np.minimum(pol.thresholds[:120], 150), color=c, label=f"delay cost {d:g} min/min")
+    axes[0].set(title="MDP policy: go if the queue is below", xlabel="minutes after 19:30", ylabel="queue threshold",
+                ylim=(0, 155))
+    axes[0].legend(fontsize=8)
+    for (label, tr), c in zip(traces.items(), [viz.MUTED, viz.CE, viz.NE]):
+        axes[1].plot(np.arange(len(tr)), tr, color=c, label=label, lw=1.6)
+    axes[1].set(title="Queue during one evening", xlabel="minutes after 19:30", ylabel="people in queue")
+    axes[1].legend(fontsize=8)
+    for d, c in zip(delays, [viz.CE, viz.SERIES[3], viz.NE, viz.SERIES[6]]):
+        sub = df[df.display_delay_min == d]
+        axes[2].plot(sub.share_using, sub["all"], marker="o", ms=5, color=c, label=f"counter {d} min old")
+    axes[2].set(title="Average cost per student", xlabel="share of students using the MDP policy",
+                ylabel="minutes (wait + delay)")
+    axes[2].legend(fontsize=8)
+    fig.tight_layout()
+    save(fig, "e12_mdp")
+
+
+# =============================================================== E13 Shapley value and core
+def e13_shapley() -> None:
+    plt = viz.plt
+    out = {}
+    fig, axes = plt.subplots(1, 2, figsize=(13, 3.6), sharey=False)
+    for ax, day in zip(axes, ("normal", "special")):
+        inst = meal_instance("Jaiswal", "dinner", day)
+        r = queue_cost_game(inst.game)
+        out[day] = {"groups": r.groups, "sizes": r.sizes.tolist(), "shapley_per_member": r.shapley_per_member.round(3).tolist(),
+                    "own_wait_per_member": r.own_wait_per_member.round(3).tolist(), "total": r.total,
+                    "core_empty": r.core_empty, "least_core_eps": r.least_core_eps, "supermodular": r.supermodular}
+        x = np.arange(len(r.groups))
+        ax.bar(x - 0.2, r.shapley_per_member, 0.38, color=viz.NE, label="queue caused (Shapley share)")
+        ax.bar(x + 0.2, r.own_wait_per_member, 0.38, color=viz.CE, label="queue suffered (own wait)")
+        ax.set_xticks(x[::2], r.groups[::2])
+        ax.set(title=f"Jaiswal dinner, {day} night: per student, by preferred time", ylabel="minutes")
+        ax.legend(fontsize=8)
+    fig.tight_layout()
+    save(fig, "e13_shapley")
+    SUMMARY["e13"] = out
+
+
+# =============================================================== E14 fairness
+def e14_fairness() -> None:
+    plt = viz.plt
+    inst, b = standard_instance()
+    g = inst.game
+    f = fair_scheme(g, b.best_nash.X, b.optimum.X)
+    peak = (g.tau >= 3) & (g.tau <= 6)  # prefer 20:00-20:30
+    groups = {"flexible (beta 1.5)": g.beta == 1.5, "average (beta 3)": g.beta == 3.0, "rigid (beta 6)": g.beta == 6.0,
+              "prefer 20:00-20:30": peak, "prefer other times": ~peak, "everyone": np.ones(g.K, bool)}
+    cols = {"nash": "selfish (Nash)", "optimum": "optimum, no reward", "with_reward": "optimum + obedience reward",
+            "with_fee": "... + Shapley-proportional fee"}
+    rows = [{"group": name, **{lab: f.group_mean(k, m) for k, lab in cols.items()}} for name, m in groups.items()]
+    SUMMARY["e14"] = {"table": pd.DataFrame(rows).round(3).to_dict("records"), "budget_per_person": f.budget / g.n,
+                      "worse_off": {lab: f.worse_off(k) for k, lab in cols.items() if k != "nash"},
+                      "max_loss_sec": {lab: 60 * f.max_loss(k) for k, lab in cols.items() if k != "nash"}, "n": g.n}
+    fig, ax = plt.subplots(figsize=(12, 3.6))
+    names = list(groups)[:-1]
+    x = np.arange(len(names))
+    for j, (k, lab) in enumerate(cols.items()):
+        vals = [f.group_mean(k, groups[nm]) for nm in names]
+        ax.bar(x + (j - 1.5) * 0.2, vals, 0.19, color=[viz.NE, viz.SERIES[3], viz.OPT, viz.CE][j], label=lab)
+    ax.set_xticks(x, names)
+    ax.set(title="Who carries the cost? Average cost per student by group (Jaiswal dinner)", ylabel="minutes")
+    ax.legend(fontsize=8, ncol=2)
+    save(fig, "e14_fairness")
+
+
+# =============================================================== E15 robust choice (alpha-beta)
+def e15_robust(seeds: int) -> None:
+    inst, b = standard_instance()
+    g = inst.game
+    ob = obedience(g, b.optimum.X)
+    alt = g.deviation_costs(b.optimum.X).argmin(axis=2)
+    policies = policy_list(inst, b, ob, alt)
+    # nature's most adversarial regime first (move ordering makes pruning effective)
+    regimes = ["reactive (everyone reconsiders daily)", "calm (30% reconsider daily)", "noisy (low rationality)"]
+    n_seeds = max(3, seeds // 3)
+    cache = {}
+
+    def evaluate(pol, regime):
+        key = (pol.name, regime)
+        if key not in cache:
+            cache[key] = float(np.mean([simulate(g.congestion, inst.tau, inst.beta, pol, REGIMES[regime], days=150,
+                                                  burn_in=50, seed=s).metrics["mean_cost"] for s in range(n_seeds)]))
+        return cache[key]
+
+    out = {}
+    for label, opts in [("all policies", policies), ("information only (no rewards)", policies[:8])]:
+        cache.clear()
+        ab = minimax_alphabeta(opts, regimes, evaluate, prune=True)
+        evaluated = dict(cache)
+        cache.clear()
+        full = minimax_alphabeta(opts, regimes, evaluate, prune=False)
+        out[label] = {"choice": ab.choice.name, "worst_case_cost": ab.value, "leaves_evaluated": ab.leaves_evaluated,
+                      "leaves_total": ab.leaves_total, "same_as_full_minimax": ab.choice.name == full.choice.name,
+                      "full_minimax_value": full.value, "pruned": len(ab.pruned)}
+    SUMMARY["e15"] = out
+
+
+# =============================================================== website data
+REPO = "https://github.com/YashG1836/crowd-congestion"
+APP = "https://crowd-congestion.streamlit.app/"
+SITE = "https://yashg1836.github.io/crowd-congestion/"
+
+
+def export_site() -> None:
+    """Write docs/data.js: every number and series the website shows, produced by this code."""
+    inst, b = standard_instance()
+    g = inst.game
+    n = g.n
+    ob = obedience(g, b.optimum.X)
+    alt = g.deviation_costs(b.optimum.X).argmin(axis=2)
+    pols = {p.name: p for p in policy_list(inst, b, ob, alt)}
+    show = ["pi0 No information", "pi1 Exact live", "pi5 Partial (30% see Exact live)", "pi7 CE recommendation",
+            "pi8 Optimum as advice + obedience reward"]
+    playback = {}
+    for name in show:
+        r = simulate(g.congestion, inst.tau, inst.beta, pols[name], REGIMES["reactive (everyone reconsiders daily)"],
+                     days=120, burn_in=40, seed=0)
+        playback[name] = {"loads": r.loads.astype(int).tolist(), "cost": np.nanmean(r.cost, axis=1).round(3).tolist(),
+                          "swing": r.metrics["swing"], "mean_cost": r.metrics["mean_cost"]}
+    # the student's phone: one ordinary student (Nash schedule) and the most tempted one (optimum)
+    def phone(X, k, t, bonus=0.0):
+        D = g.deviation_costs(X)[k, t].copy()  # this student's cost in every slot if everyone else obeys
+        D[t] -= bonus
+        return {"tau": int(g.tau[k]), "rec": int(t), "costs": D.round(3).tolist(), "beta": float(g.beta[k])}
+    k_opt, t_opt = map(int, np.unravel_index(np.argmax(ob.gain_by_cell), ob.gain_by_cell.shape))  # most tempted
+    k_ne = int(np.argmax(g.counts * (g.tau == 4)))  # a large group that prefers 20:10
+    t_ne = int(np.argmax(b.best_nash.X[k_ne]))
+    phones = {"nash": phone(b.best_nash.X, k_ne, t_ne), "opt": phone(b.optimum.X, k_opt, t_opt),
+              "reward": phone(b.optimum.X, k_opt, t_opt, float(ob.gain_by_cell[k_opt, t_opt]))}
+    sp = meal_instance("Jaiswal", "dinner", "special")
+    bs = benchmarks(sp.game)
+    mess = {}
+    for key, I, B in [("normal", inst, b), ("special", sp, bs)]:
+        G = I.game
+        mess[key] = {"nash": G.loads(B.nash.X).astype(int).tolist(), "opt": G.loads(B.optimum.X).astype(int).tolist(),
+                     "wait_nash": G.congestion.wait(G.loads(B.nash.X).astype(float)).round(2).tolist(),
+                     "wait_opt": G.congestion.wait(G.loads(B.optimum.X).astype(float)).round(2).tolist(),
+                     "capacity": G.congestion.capacity, "n": G.n,
+                     "nash_cost": B.nash.social_cost / G.n, "opt_cost": B.optimum.social_cost / G.n, "poa": B.poa}
+    scans, _ = generate(weeks=8, seed=0)
+    H = arrival_heatmap(scans, "Jaiswal", "dinner").iloc[:, :12]
+    data = {
+        "links": {"repo": REPO, "app": APP, "site": SITE, "report": REPO + "/blob/main/report/main.pdf"},
+        "labels": g.slot_labels,
+        "mess": mess,
+        "summary": {k: SUMMARY[k] for k in ("e0", "e2", "e6", "e8", "e10", "e11", "e12", "e13", "e14", "e15")},
+        "policies": SUMMARY["e3"],
+        "playback": playback,
+        "phones": phones,
+        "heatmap": {"days": list(H.index), "times": list(H.columns), "values": H.values.round(1).tolist()},
+        "calibration": SUMMARY["e1"]["service_rate"],
+        "nowcast": SUMMARY["e9"],
+    }
+    (ROOT / "docs").mkdir(exist_ok=True)
+    text = json.dumps(data, default=_jsonable, separators=(",", ":"))
+    (ROOT / "docs" / "data.js").write_text("// generated by `python experiments.py` -- do not edit by hand\n"
+                                           "window.DATA = " + text + ";\n")
+
+
+def _jsonable(o):
+    if isinstance(o, (np.floating, np.integer)):
+        return o.item()
+    if isinstance(o, np.ndarray):
+        return o.tolist()
+    if isinstance(o, (np.bool_,)):
+        return bool(o)
+    return str(o)
+
+
 def write_markdown() -> None:
     s = SUMMARY
     lines = ["# Results (generated by `python experiments.py`)", ""]
@@ -540,6 +827,36 @@ def write_markdown() -> None:
               pd.DataFrame(e8["per_state"]).to_markdown(), ""]
     lines += ["## E9 Nowcasting (mean absolute error, scans per 10-min slot, next 3 slots; 4 messes)", "",
               pd.DataFrame(s["e9"]).to_markdown(index=False), ""]
+    lines += ["## E10 Dominance and backward induction", ""]
+    for r in s["e10"]["iesds"]:
+        lines += [f"- Dinner game with Late cost {r['late_cost']}: survivors {r['surviving']}; "
+                  f"{'; '.join(r['log']) or 'no strictly dominated action'}; pure NE {r['pure_nash']}"]
+    lines += [f"- Sequential dinner game (student 2 sees student 1 on a live counter): SGPE path {s['e10']['sgpe_path']},"
+              f" costs {s['e10']['sgpe_costs']}; Nash equilibria of its normal form: {s['e10']['sequential_nash']}"
+              " (only the first is subgame perfect: 'always Late' is a wrong reply after Late, and 'always Peak' is a"
+              " threat student 2 would not carry out).", ""]
+    lines += ["## E11 Students as bandit / RL learners (300 days)", "",
+              pd.DataFrame(s["e11"]["table"]).round(3).to_markdown(index=False), ""]
+    lines += ["## E12 Go-now-or-wait MDP within an evening", "",
+              pd.DataFrame(s["e12"]["table"]).round(3).to_markdown(index=False), ""]
+    lines += ["## E13 Who causes the queue (Shapley value, core)", ""]
+    for day, r in s["e13"].items():
+        lines += [f"**{day} night**: total waiting {r['total']:.0f} min; core empty: {r['core_empty']} "
+                  f"(least-core epsilon {r['least_core_eps']:.0f} min); supermodular: {r['supermodular']}", "",
+                  pd.DataFrame({"group": r["groups"], "students": r["sizes"], "caused (Shapley) per student": r["shapley_per_member"],
+                                "suffered per student": r["own_wait_per_member"]}).to_markdown(index=False), ""]
+    e14 = s["e14"]
+    lines += ["## E14 Fairness: who carries the cost of coordination?", "",
+              pd.DataFrame(e14["table"]).to_markdown(index=False), "",
+              f"Reward budget {e14['budget_per_person']:.3f} min per student per meal. Students worse off than under"
+              f" Nash (of {e14['n']}): {e14['worse_off']}; largest loss in seconds: "
+              f"{ {k: round(v, 1) for k, v in e14['max_loss_sec'].items()} }.", ""]
+    lines += ["## E15 Robust policy choice (minimax with alpha-beta pruning)", ""]
+    for k, v in s["e15"].items():
+        lines += [f"- {k}: choose **{v['choice']}** (worst case {v['worst_case_cost']:.3f} min); alpha-beta simulated"
+                  f" {v['leaves_evaluated']} of {v['leaves_total']} (policy, regime) pairs; same decision as full"
+                  f" minimax: {v['same_as_full_minimax']}"]
+    lines += [""]
     (OUT / "RESULTS.md").write_text("\n".join(lines))
 
 
@@ -553,13 +870,19 @@ def main() -> None:
     steps = [("E0 theory", e0_theory), ("E1 data", e1_data), ("E2 price of anarchy", e2_poa),
              ("E3 policies", lambda: e3_policies(seeds)), ("E4 sweeps", lambda: e4_sweeps(seeds)),
              ("E5 delay", lambda: e5_delay(seeds)), ("E6 correlated eq.", lambda: e6_ce(seeds)),
-             ("E7 learning", lambda: e7_learning(seeds)), ("E8 Bayesian", e8_bayes), ("E9 nowcasting", e9_nowcast)]
+             ("E7 learning", lambda: e7_learning(seeds)), ("E8 Bayesian", e8_bayes), ("E9 nowcasting", e9_nowcast),
+             ("E10 dominance/SGPE", e10_dominance), ("E11 bandits", lambda: e11_bandits(seeds)),
+             ("E12 MDP evening", lambda: e12_mdp(seeds)), ("E13 Shapley/core", e13_shapley),
+             ("E14 fairness", e14_fairness), ("E15 robust/alpha-beta", lambda: e15_robust(seeds))]
     for name, fn in steps:
         t0 = time.time()
         fn()
         print(f"{name:22s} done in {time.time() - t0:5.1f}s")
     write_markdown()
-    print(f"wrote {OUT}")
+    t0 = time.time()
+    export_site()
+    print(f"{'website data':22s} done in {time.time() - t0:5.1f}s")
+    print(f"wrote {OUT} and docs/data.js")
 
 
 if __name__ == "__main__":

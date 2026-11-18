@@ -5,18 +5,20 @@
 import numpy as np
 import pytest
 
-from crowd.correlated import (bayesian_analysis, best_ce, interpolated_schedules, obedience, obedience_incentive,
-                              recommend)
+from crowd.correlated import (bayesian_analysis, best_ce, fair_scheme, interpolated_schedules, obedience,
+                              obedience_incentive, queue_cost_game, recommend)
 from crowd.domains import DOMAINS, build
 from crowd.game import (Affine, Expected, FluidQueue, SlotGame, benchmarks, local_search, wardrop_equilibrium,
                         wardrop_gap)
 from crowd.mess import (MEALS, MESSES, arrival_heatmap, estimate_preferred_slots, estimate_service_rate, generate,
                         make_roster, meal_instance, nowcast_errors, preference_accuracy, roster_truth,
                         scans_per_slot)
-from crowd.simulate import (EXP3, Coarse, Forecast, Hedge, Live, Logit, Noisy, NoInfo, Partial, Recommend,
-                            RegretMatching, jain_index, simulate)
-from crowd.theory import (critical_responsiveness, dinner_game, hedge, intersection_game, numeric_boundary,
-                          pigou_numeric, pigou_poa, regret_matching, shared_counter_dynamics, three_student_game)
+from crowd.simulate import (EXP3, UCB, Coarse, EpsilonGreedy, Forecast, Hedge, Live, Logit, Noisy, NoInfo, Partial,
+                            Recommend, RegretMatching, evening, jain_index, simulate, solve_go_wait)
+from crowd.theory import (backward_induction, critical_responsiveness, dinner_game, hedge, intersection_game,
+                          iterated_elimination, minimax_alphabeta, numeric_boundary, pigou_numeric, pigou_poa,
+                          regret_matching, sequential_dinner_game, sequential_dinner_normal_form,
+                          shared_counter_dynamics, three_student_game)
 
 
 @pytest.fixture(scope="module")
@@ -386,3 +388,81 @@ def test_nowcasting_runs_and_is_reasonable(logs):
     errs = nowcast_errors(table, min_history=2)
     mean_load = table.to_numpy().mean()
     assert all(0 < e < mean_load for e in errs.values())  # better than predicting zero
+
+
+
+# ############################################################################
+# Course-topic extensions: dominance, SGPE, alpha-beta, Shapley/core, fairness, MDP, bandits
+# ############################################################################
+def test_dominance_solvable_when_late_is_too_costly():
+    alive, log = iterated_elimination(dinner_game(2.5))
+    assert alive == [[0], [0]] and len(log) == 2  # only Peak survives: the Pigou outcome
+    alive, log = iterated_elimination(dinner_game(1.5))
+    assert alive == [[0, 1], [0, 1]] and log == []  # nothing dominated: we need equilibrium
+    assert iterated_elimination(intersection_game())[0] == [[0, 1], [0, 1]]
+
+
+def test_backward_induction_gives_subgame_perfect_outcome():
+    value, strategy, path = backward_induction(sequential_dinner_game(1.5))
+    assert path == ["Peak", "Late"] and value == (1.0, 1.5)
+    assert strategy["S2 after S1=Peak"] == "Late" and strategy["S2 after S1=Late"] == "Peak"
+    nf = sequential_dinner_normal_form(1.5)
+    nash = {nf.profile_name(x) for x in nf.pure_nash()}
+    assert "(Late, always Peak)" in nash  # a Nash equilibrium built on a non-credible threat ...
+    # ... which is not subgame perfect: after S1=Peak, 'Peak' costs student 2 more than 'Late'
+    g = dinner_game(1.5)
+    assert g.cost(1, (0, 0)) > g.cost(1, (0, 1))
+
+
+def test_alphabeta_matches_minimax_and_prunes():
+    table = {("a", 0): 5, ("a", 1): 1, ("a", 2): 2, ("b", 0): 9, ("b", 1): 0, ("b", 2): 0,
+             ("c", 0): 4, ("c", 1): 8, ("c", 2): 0}
+    calls = []
+    ev = lambda o, s: calls.append((o, s)) or table[(o, s)]  # noqa: E731
+    ab = minimax_alphabeta(["a", "b", "c"], [0, 1, 2], ev)
+    full = minimax_alphabeta(["a", "b", "c"], [0, 1, 2], lambda o, s: table[(o, s)], prune=False)
+    assert ab.choice == full.choice == "a" and ab.value == full.value == 5
+    assert ab.leaves_evaluated == len(calls) < 9
+
+
+def test_shapley_efficiency_null_player_and_empty_core():
+    q = FluidQueue(service_rate=5, T=6, slot_minutes=10)
+    game = SlotGame(q, tau=[0, 1, 5], beta=[1.0, 1.0, 1.0], counts=[80, 40, 10])
+    r = queue_cost_game(game)
+    assert r.shapley.sum() == pytest.approx(r.total)
+    assert r.shapley[2] == pytest.approx(0.0, abs=1e-9)  # the 21:20 group never meets the queue
+    assert r.supermodular and r.core_empty and r.least_core_eps > 0
+
+
+def test_fair_scheme_is_budget_balanced_and_nobody_loses(dinner):
+    inst, b = dinner
+    f = fair_scheme(inst.game, b.best_nash.X, b.optimum.X)
+    w = inst.game.counts
+    assert (f.fee * w).sum() == pytest.approx(f.budget)  # fees pay exactly for the rewards
+    assert (f.with_fee * w).sum() == pytest.approx(b.optimum.social_cost)  # transfers net out
+    assert f.worse_off("with_reward") == 0
+    assert f.max_loss("with_fee") < 0.1  # nobody loses more than 6 seconds vs selfish play
+
+
+def test_go_wait_mdp_and_evening():
+    lam = np.full(30, 12.0)
+    lazy = solve_go_wait(lam, service_rate=10, delay_cost=0.01)
+    hurry = solve_go_wait(lam, service_rate=10, delay_cost=100.0)
+    assert np.all(hurry.thresholds[:-1] >= 300)  # waiting is too expensive: always go
+    assert lazy.thresholds[0] < hurry.thresholds[0]
+    assert np.all(lazy.value[0] <= np.arange(401) / 10 + 1e-9)  # never worse than going now
+    rng = np.random.default_rng(0)
+    ready = rng.integers(0, 20, 200)
+    dcost = np.full(200, 0.3)
+    pol = {0.3: solve_go_wait(np.bincount(ready, minlength=30).astype(float), 10, 0.3)}
+    none = evening(ready, dcost, np.zeros(200, bool), 10, pol, 30)
+    assert np.all(none.delay == 0)  # without the display everybody goes when ready
+    users = evening(ready, dcost, np.ones(200, bool), 10, pol, 30)
+    assert np.all(users.delay >= 0) and users.cost.mean() <= none.cost.mean() + 1e-9
+
+
+def test_bandit_learners_run(dinner):
+    inst, _ = dinner
+    for beh in (EpsilonGreedy(0.05, None), EpsilonGreedy(0.05, 0.1), UCB(2.0)):
+        m = simulate(inst.game.congestion, inst.tau, inst.beta, Live(), beh, days=40, burn_in=10, seed=0).metrics
+        assert np.isfinite(m["mean_cost"]) and m["swap_regret"] >= m["ext_regret"] - 1e-9

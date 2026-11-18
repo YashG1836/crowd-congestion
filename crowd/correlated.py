@@ -236,3 +236,138 @@ def bayesian_analysis(game: SlotGame, states: dict[str, CongestionModel], prior:
         uopt += p * row["uninformed_opt"]
         iopt += p * row["informed_opt"]
     return BayesianReport(names, prior, bne, inf_ne, uopt, iopt, per_state, game.n)
+
+
+# ============================================================================
+# Who causes the queue? Shapley value and core (lectures: core, Shapley value).
+#
+# Cooperative cost game. Players are the arrival groups g (all people whose
+# preferred slot is g). The cost of a coalition S is the total waiting if
+# exactly the groups in S come and arrive at their preferred slots:
+#     c(S) = sum_t A_t(S) W_t(A(S)),   A_t(S) = n_t if t in S else 0.
+# * Shapley value: each group's average marginal contribution to waiting over
+#   all orders in which groups could arrive -- its fair share of responsibility
+#   for the queue (efficient: shares add up to c(N)).
+# * Core: cost shares x with sum x = c(N) and sum_{g in S} x_g <= c(S) for every
+#   coalition S (no group of groups pays more than it would on its own). A queue
+#   is a negative externality, so c is supermodular and the core is typically
+#   EMPTY: no split of the waiting is acceptable to every coalition. We check
+#   this with a linear program.
+# ============================================================================
+@dataclass
+class CooperativeReport:
+    groups: list[str]  # slot label of each player (group)
+    sizes: np.ndarray  # members per group
+    shapley: np.ndarray  # Shapley cost share per group (minutes, whole group)
+    own_wait: np.ndarray  # waiting the group itself experiences when everyone comes (minutes, whole group)
+    total: float  # c(N)
+    core_empty: bool
+    least_core_eps: float  # smallest e such that x(S) <= c(S) + e for all S is feasible
+    supermodular: bool
+
+    @property
+    def shapley_per_member(self) -> np.ndarray:
+        return np.divide(self.shapley, self.sizes, out=np.zeros_like(self.shapley), where=self.sizes > 0)
+
+    @property
+    def own_wait_per_member(self) -> np.ndarray:
+        return np.divide(self.own_wait, self.sizes, out=np.zeros_like(self.own_wait), where=self.sizes > 0)
+
+
+def queue_cost_game(game: SlotGame) -> CooperativeReport:
+    """Exact Shapley value and core check for the waiting-cost game (one player per preferred slot)."""
+    from math import factorial
+
+    T = game.T
+    sizes = np.bincount(game.tau, weights=game.counts, minlength=T).astype(float)
+    players = [t for t in range(T) if sizes[t] > 0]
+    m = len(players)
+    masks = np.arange(1 << m)
+    member = ((masks[:, None] >> np.arange(m)[None, :]) & 1).astype(bool)  # (2^m, m)
+    loads = np.zeros((len(masks), T))
+    loads[:, players] = member * sizes[players][None, :]
+    cost = (loads * game.congestion.wait(loads)).sum(axis=1)  # c(S) for every coalition
+    full = (1 << m) - 1
+    shap = np.zeros(m)
+    for j in range(m):
+        without = masks[~member[:, j]]
+        s = member[without].sum(axis=1)
+        weight = np.array([factorial(k) * factorial(m - k - 1) for k in s]) / factorial(m)
+        shap[j] = (weight * (cost[without | (1 << j)] - cost[without])).sum()
+    # own experienced waiting when everyone comes
+    W = game.congestion.wait(loads[full])
+    own = sizes[players] * W[players]
+    # core LP (cost game): sum x = c(N), x(S) <= c(S) + e; minimise e (least core). Core empty iff e* > 0.
+    A_ub = np.c_[member[1:full].astype(float), -np.ones(full - 1)]
+    b_ub = cost[1:full]
+    res = linprog(np.r_[np.zeros(m), 1.0], A_ub=A_ub, b_ub=b_ub, A_eq=np.r_[np.ones(m), 0.0][None, :],
+                  b_eq=[cost[full]], bounds=[(None, None)] * (m + 1), method="highs")
+    eps = float(res.x[-1]) if res.success else float("nan")
+    # supermodularity on all pairs of coalitions would be 4^m checks; test the standard local condition:
+    # marginal cost of adding j never decreases when the coalition grows (checked for every S and j, k).
+    supermod = True
+    for j in range(m):
+        for k in range(m):
+            if j == k:
+                continue
+            base = masks[~member[:, j] & ~member[:, k]]
+            mj = cost[base | (1 << j)] - cost[base]
+            mjk = cost[base | (1 << j) | (1 << k)] - cost[base | (1 << k)]
+            if np.any(mjk < mj - 1e-9):
+                supermod = False
+                break
+        if not supermod:
+            break
+    return CooperativeReport([game.slot_labels[t] for t in players], sizes[players], shap, own,
+                             float(cost[full]), bool(eps > 1e-7), eps, supermod)
+
+
+# ============================================================================
+# A fair, self-funding coordination scheme (lectures: fairness; Shapley value).
+#
+# 1. Recommend the planner's optimum (shuffled within each type).
+# 2. Pay each person the obedience reward of Proposition 3, so following the
+#    advice is a best response (a correlated equilibrium of the rewarded game).
+# 3. Fund the rewards with a fee proportional to the queue each arrival group
+#    causes -- its Shapley share of the waiting-cost game -- so the scheme is
+#    budget balanced and "those who cause the queue pay for removing it".
+# We compare group outcomes (group fairness: parity between flexible and rigid
+# students, between peak-lovers and others) and count who ends up worse off
+# than under selfish play (a Pareto check).
+# ============================================================================
+@dataclass
+class FairScheme:
+    nash: np.ndarray  # (K,) expected cost per person of each type at the Nash schedule
+    optimum: np.ndarray  # (K,) at the optimum, no reward
+    with_reward: np.ndarray  # (K,) optimum minus the obedience reward received
+    with_fee: np.ndarray  # (K,) ... plus the Shapley-proportional fee paid
+    budget: float  # total reward per meal (minutes-equivalent)
+    fee: np.ndarray  # (K,) fee per person of each type
+    counts: np.ndarray
+
+    def worse_off(self, which: str, tol: float = 1e-9) -> int:
+        """Number of people whose cost under `which` exceeds their Nash cost."""
+        return int(((getattr(self, which) > self.nash + tol) * self.counts).sum())
+
+    def max_loss(self, which: str) -> float:
+        return float((getattr(self, which) - self.nash).max())
+
+    def group_mean(self, which: str, mask: np.ndarray) -> float:
+        v, w = getattr(self, which), self.counts
+        return float((v[mask] * w[mask]).sum() / w[mask].sum())
+
+
+def fair_scheme(game: SlotGame, X_nash: np.ndarray, X_opt: np.ndarray) -> FairScheme:
+    def per_type(X):
+        X = np.asarray(X)
+        return (X * game.costs(X)).sum(axis=1) / game.counts
+
+    ne, opt = per_type(X_nash), per_type(X_opt)
+    gains = obedience(game, X_opt).gain_by_cell
+    reward = (np.asarray(X_opt) * gains).sum(axis=1) / game.counts
+    budget = float((np.asarray(X_opt) * gains).sum())
+    coop = queue_cost_game(game)
+    share = {g: s / coop.shapley.sum() for g, s in zip(coop.groups, coop.shapley)}
+    size = dict(zip(coop.groups, coop.sizes))
+    fee = np.array([budget * share[game.slot_labels[t]] / size[game.slot_labels[t]] for t in game.tau])
+    return FairScheme(ne, opt, opt - reward, opt - reward + fee, budget, fee, game.counts)

@@ -16,12 +16,15 @@
 \usepackage{algorithm,algpseudocode,needspace,array}
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
 % figures are produced by experiments.py into ../results/figures/ (on Overleaf they can also go in media/)
-\graphicspath{{../results/figures/}{media/}}
+\graphicspath{{../results/figures/}{./}{media/}}
 
 \setlist{nosep,leftmargin=*}
 \captionsetup{font=small,labelfont=bf}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\floatsep}{6pt plus 2pt minus 2pt}
 \newtheorem{definition}{Definition}
 \newtheorem{proposition}{Proposition}
+\newcommand{\E}{\mathbb{E}}
 
 %Header
 \pagestyle{fancy}
@@ -34,8 +37,9 @@
 
 %% Title
 \title{Coordinating Crowds at Shared Facilities: Congestion Games, Information Design and Correlated Equilibrium
-\thanks{\textit{\underline{Code and data generator}}: \url{https://github.com/YashG1836/crowd-congestion};
-\textit{\underline{live demo}}: \url{https://crowd-congestion.streamlit.app/}.
+\thanks{\textit{\underline{Source code}}: \url{https://github.com/YashG1836/crowd-congestion};
+\textit{\underline{website}}: \url{https://yashg1836.github.io/crowd-congestion/};
+\textit{\underline{interactive lab}}: \url{https://crowd-congestion.streamlit.app/}.
 Every figure and number in this report is produced by \texttt{python experiments.py}.}}
 
 \author{
@@ -54,201 +58,200 @@ Every figure and number in this report is produced by \texttt{python experiments
 \maketitle
 
 \begin{abstract}
-\noindent Many people share one bottleneck and each chooses \emph{when} to use it: cars at a bridge, backups on a network
-link, diners at a food court, students at a hostel mess. We model this as an atomic congestion game over time slots
-with a fluid queue, and treat the crowd display as an \emph{information designer}. We (i)~compute Nash equilibria,
-the social optimum and the price of anarchy (PoA) for five domains and 24 synthetic mess instances (4 messes, 3000
-students, 3 meals); (ii)~simulate day-to-day play under nine information policies and three behaviour regimes; and
-(iii)~study private recommendations as \emph{correlated equilibria} (CE). Selfish timing costs 3--8$\times$ the
-optimum. An exact live counter that everyone reacts to raises the cost about 5$\times$ (the El Farol effect).
-Recommendations drawn from a Nash schedule are obeyed, stable and remove herding once 50--70\% of students use
-them, but we prove and verify by linear programming that advice alone cannot beat Nash in a large crowd. The CE
-obedience constraints, however, give the smallest reward that makes the optimum self-enforcing: rewards worth
-about 2.7 minutes for 13\% of students cut the average cost from 2.24 to 0.36 minutes.
+\noindent Many people share one bottleneck and each decides \emph{when} to use it: commuters at a bridge, backup
+jobs on a network link, diners at a food court, students at a hostel mess. We model this as an atomic congestion
+game over time slots with a fluid queue, and study it with the tools of the course: dominance, pure and mixed Nash
+equilibria, subgame perfection, correlated equilibria, the core and the Shapley value, Markov decision processes,
+bandits and reinforcement learning, minimax search with alpha-beta pruning, and fairness. On five domains and 24
+synthetic mess instances (4 messes, 3000 students, 3 meals) selfish timing costs 3--8$\times$ the planner's
+optimum, or 132 student-hours a day. An exact live counter that everyone reacts to raises the average cost about
+five-fold (El Farol herding); a fresh within-evening counter helps, a stale one hurts. Private recommendations drawn
+from a Nash schedule are correlated equilibria: they are obeyed, stable in every behaviour model, and remove herding
+once half the students use them. We prove, and verify by linear programming, that advice alone cannot beat Nash in a
+large crowd; but the obedience constraints price the smallest reward that does. Rewards worth about 2.7 minutes to
+13\% of students, funded by fees proportional to each group's Shapley responsibility for the queue, cut the average
+cost from 2.24 to 0.36 minutes, with no student more than 3\,s worse off than under selfish play.
 \end{abstract}
 
-\keywords{Congestion games \and Correlated equilibrium \and Information design \and Price of anarchy \and No-regret learning}
+\keywords{Congestion games \and Correlated equilibrium \and Shapley value \and Markov decision process \and Information design}
 
 % ============================================================================
 \section{Introduction}
-Congestion at a shared facility is usually a \emph{coordination} problem, not a capacity problem. On a popular
-night the IITGN mess is packed at 20:00--20:30 and almost empty after 21:00, yet the counter could serve everyone
-over the two hours. The same structure appears on roads (everyone wants to cross a bridge just before 9:00), in
-networks (laptops all back up at 22:00), in restaurants and in gyms. Every person who joins a queue delays everyone
-behind them but feels only their own wait.
+Congestion at a shared facility is usually a \emph{coordination} problem, not a capacity problem. On a popular night
+the IITGN mess is packed at 20:00--20:30 and almost empty after 21:00, yet the counter could serve everyone over the
+two hours. The same structure appears on roads, in networks, restaurants and gyms: every person who joins a queue
+delays everyone behind them but feels only their own wait. A live crowd counter, easy to build from the QR scans the
+mess already records, looks like the fix; but people who react to the same number move together and the rush simply
+jumps (the El Farol bar problem~\cite{arthur}). Our question: \emph{what should a display show, how fresh, and to
+whom, so that people's own choices lead to short waits?} Following our advisor, we treat congestion in general and
+use the mess as a detailed case study with synthetic data. The main solution concept is the \textbf{correlated
+equilibrium} (CE)~\cite{aumann}: telling different people different things in a way they want to follow.
 
-A live crowd counter, easy to build from the QR scans the mess already records, looks like the obvious fix. But in
-the El Farol bar problem~\cite{arthur} people who react to the same forecast move together, and a counter could
-make the rush jump between slots. Our central question is: \emph{what should a display show, how fresh and how
-accurate should it be, and to whom, so that people's own choices lead to short waits?} Following our advisor's
-suggestion we treat congestion in general, use the correlated equilibrium~\cite{aumann} as the main solution
-concept for ``telling different people different things'', and use the mess as a detailed case study with
-synthetic data.
-
-\textbf{Contributions.} (1)~One slot-congestion model and solver suite (Nash, Wardrop, optimum, PoA) covering
-roads, networks, restaurants, gyms and the mess. (2)~A day-to-day simulator comparing nine information policies
-under three behaviour models and three learning rules. (3)~A population-scale treatment of correlated
-recommendations: a fair shuffled recommender, a proof that advice cannot beat Nash in large monotone games, a
-best-CE linear program, and the \emph{price of obedience}. (4)~A synthetic semester of QR-scan logs with
-calibration and nowcasting. Every number below is produced by \texttt{python experiments.py}.
-
-% ============================================================================
-\section{Preliminaries}
-\begin{definition}[Game, NE] Players $i$ choose actions $s_i$; $c_i(s)$ is $i$'s cost. A profile is a
-\emph{Nash equilibrium} (NE) if no player can lower their cost by changing only their own action~\cite{nash}.
-Congestion games have pure NE because they admit a potential~\cite{rosenthal}.\end{definition}
-\begin{definition}[CE and CCE~\cite{aumann}] A mediator draws $s\sim p$ and privately tells each player $s_i$.
-$p$ is a \emph{correlated equilibrium} if for all $i$ and actions $a,a'$:
-$\sum_{s:s_i=a}p(s)\,[c_i(s)-c_i(a',s_{-i})]\le 0$. It is a \emph{coarse} CE if for all $i,a'$:
-$\sum_s p(s)\,[c_i(s)-c_i(a',s_{-i})]\le0$. NE$\subset$CE$\subset$CCE, and both sets are polytopes, so the best
-one is a linear program.\end{definition}
-\begin{definition}[PoA] With social cost $SC=\sum_i c_i$, $\mathrm{PoA}=SC(\text{worst NE})/SC(\text{optimum})$;
-the price of stability uses the best NE~\cite{koutsoupias,roughgarden}.\end{definition}
-\begin{definition}[Incomplete information, learning] In a Bayesian game players do not know a state $\omega$ and
-best-respond in expectation (Bayesian NE)~\cite{harsanyi}. In logit response a slot is chosen with probability
-$\propto e^{-\lambda\,\text{cost}}$~\cite{mckelvey}. Hedge~\cite{freund} (full feedback) and EXP3~\cite{auer}
-(bandit feedback) have no external regret, so joint play approaches the CCE set; regret matching~\cite{hart} has
-no swap regret and approaches the CE set.\end{definition}
-
-\textbf{Three small games} (Table~\ref{tab:toy}, Fig.~\ref{fig:theory}). \emph{Pigou's network:} with a peak road
-costing $x^p$ and an alternative costing 1, $\mathrm{PoA}(p)=[1-p(p+1)^{-(p+1)/p}]^{-1}$ (4/3 at $p{=}1$, 2.15
-at $p{=}4$). \emph{Two-student dinner game:} Peak costs the number of students there, Late costs 1.5; the shared
-counter makes both students alternate between (Peak, Peak) and (Late, Late); a private fair coin is a CE that
-reaches the optimum. \emph{Intersection (Chicken):} utilities 6/6, 2/7, 7/2, 0/0; the best CE ($\frac12$ Stop--Stop,
-$\frac14$ each Stop--Go, Go--Stop) gives \textbf{5.25} to each driver, more than any mixture of Nash equilibria (4.67).
+\textbf{Contributions.} (1)~One slot-congestion model with exact solvers (Nash, Wardrop, optimum, price of anarchy)
+for roads, networks, restaurants, gyms and the mess. (2)~Small games solved exactly with dominance, Nash, backward
+induction and CE linear programs. (3)~Correlated recommendations at population scale: a fair shuffled recommender,
+a proof that advice cannot beat Nash in large monotone games, a best-CE LP, and the \emph{price of obedience}.
+(4)~Cooperative analysis: who causes the queue (Shapley value), an empty core, and a fair self-funding reward scheme.
+(5)~Agents that plan and learn: a go-now-or-wait MDP, bandit/TD/no-regret learners, a robust (minimax, alpha-beta)
+choice of display, and a Bayesian analysis. (6)~A synthetic semester of QR-scan logs with calibration and
+nowcasting. \textbf{Everything is implemented}: a tested Python library, an experiment script, a website and an
+interactive lab (Section~\ref{sec:impl}).
 
 \begin{table}[H]\centering\small
-\caption{Two-student dinner game: what each kind of information achieves (computed by \texttt{theory.py}).}\label{tab:toy}
-\begin{tabular}{lcc}\toprule
-Policy & Total cost & Ratio to optimum\\\midrule
-Shared live counter (both react to yesterday) & 3.5 & 1.40\\
-No information (symmetric mixed NE, Peak w.p.\ 1/2) & 3.0 & 1.20\\
-Private fair coin = correlated equilibrium & \textbf{2.5} & \textbf{1.00}\\\bottomrule
+\caption{Where each topic of the course is used.}\label{tab:course}
+\begin{tabular}{>{\raggedright\arraybackslash}p{3.4cm}>{\raggedright\arraybackslash}p{10.2cm}>{\raggedright\arraybackslash}p{1.6cm}}\toprule
+Topic taught & What we do with it & Where\\\midrule
+Intelligent agents & Students and the mess office as agents: percepts (display), actions (slot), performance (cost). & \S3\\
+Normal form \& dominance & Iterated elimination: if Late costs more than any peak, Late is dominated and everyone rushes. & \S4.1, \S5.1\\
+Pure \& mixed Nash & Best-response dynamics for 678 students; mixed equilibrium of the dinner game. & \S4.1--4.2\\
+Extensive form, SGPE & A counter that shows earlier choices makes the game sequential: backward induction, non-credible threats. & \S4.1, \S5.1\\
+Alpha-beta pruning & Robust minimax choice of display policy over unknown behaviour, pruning simulations. & \S4.6, \S5.5\\
+Correlated equilibrium & CE/CCE LPs; shuffled Nash advice; best-CE LP at scale; obedience reward. & \S4.3, \S5.3\\
+Core \& Shapley value & Who causes the queue; the waiting game has an empty core; Shapley fees fund rewards. & \S4.4, \S5.4\\
+MDPs & Go now or wait with a live counter, solved by value iteration; many users at once. & \S4.5, \S5.2\\
+MAB, RL (Monte Carlo, TD) & $\varepsilon$-greedy (sample-average vs.\ constant step), UCB1, EXP3 students. & \S4.5, \S5.5\\
+Fairness & Group parity (flexible vs.\ rigid, peak vs.\ off-peak) and a Pareto check vs.\ selfish play. & \S4.4, \S5.4\\\bottomrule
 \end{tabular}\end{table}
 
 % ============================================================================
-\section{Problem formulation}
-\textbf{Players and slots.} $n$ people, $T$ slots of $\Delta$ minutes (mess: $T{=}12$, $\Delta{=}10$). Person $i$
-has a private preferred slot $\tau_i$ and flexibility $\beta_i$ (minutes of waiting they would accept to avoid
-moving one slot). People with equal $(\tau,\beta)$ form a \emph{type} $k$; the state is $X[k,t]$, the number of
-type-$k$ people in slot $t$, with loads $A_t=\sum_k X[k,t]$. The cost of a type-$k$ person in slot $t$ is
-\begin{equation}
-c_k(t;A)=g_t(A)+\beta_k\,|t-\tau_k|,\qquad SC(X)=\sum_t A_t\,g_t(A)+\sum_{k,t}X[k,t]\,\beta_k|t-\tau_k|.
-\end{equation}
-\textbf{Fluid queue.} One counter serves $\mu$ people per minute, arrivals are spread evenly within a slot,
-service is first come first served, and leftover queue carries over. With backlog $q_0$ and net rate
-$r=(A_t-\mu\Delta)/\Delta$, the queue after $u$ minutes is $\max(0,q_0+ru)$ and an arrival then waits that divided
-by $\mu$. Averaging over the slot,
-\begin{equation}
-W_t=\begin{cases}\big(q_0+\tfrac{A_t-\mu\Delta}{2}\big)/\mu & r\ge0\\[2pt]
-\big(q_0 s+\tfrac{r s^2}{2}\big)/(\Delta\mu),\; s=\min(\Delta,q_0/(-r)) & r<0\end{cases},\qquad q_0^{\text{next}}=\max(0,q_0+A_t-\mu\Delta).
-\end{equation}
-Total waiting $\sum_tA_tW_t$ equals the area under the queue (Little's law). This is Vickrey's bottleneck
-model~\cite{vickrey} for roads and a deterministic link buffer for networks. We use $g_t=W_t$, optionally plus a
-penalty for missing a scarce special item. The game is \emph{atomic}: a deviation from $t$ to $t'$ changes loads to
-$A-e_t+e_{t'}$.
+\section{Preliminaries}
+\textbf{Games.} Players $i$ choose actions $s_i$ with costs $c_i(s)$. Action $a$ is \emph{strictly dominated} by $b$
+if $b$ costs less against every choice of the others; iterated elimination (IESDS) removes such actions. A
+\emph{Nash equilibrium} (NE) is a profile where no player gains by deviating alone~\cite{nash}; congestion games have
+pure NE because they admit a potential~\cite{rosenthal}. In an extensive-form game with perfect information,
+backward induction yields the \emph{subgame-perfect equilibrium} (SGPE), which removes NE built on non-credible
+threats. A mediator draws $s\sim p$ and privately tells each player $s_i$; $p$ is a \emph{correlated equilibrium}
+if $\sum_{s:s_i=a}p(s)[c_i(s)-c_i(a',s_{-i})]\le0$ for all $i,a,a'$, and a \emph{coarse} CE if
+$\sum_s p(s)[c_i(s)-c_i(a',s_{-i})]\le0$ for all $i,a'$. NE $\subset$ CE $\subset$ CCE; both are polytopes, so the
+best one is a linear program. The \emph{price of anarchy} (PoA) is SC(worst NE)/SC(optimum)~\cite{koutsoupias,roughgarden}.
+\textbf{Cooperative games.} For a cost game $c(S)$ on players $N$, the \emph{Shapley value}~\cite{shapley} is each player's average
+marginal cost over all orders; the \emph{core} is the set of splits $x$ with $\sum_{N}x=c(N)$ and $\sum_{S}x\le c(S)$
+for every coalition $S$. \textbf{Sequential decisions.} An MDP is solved by the Bellman equation (value iteration /
+backward induction). Bandit learners see only their own reward~\cite{sutton}: $\varepsilon$-greedy with sample averages (Monte
+Carlo) or a constant step (TD), UCB1, and EXP3~\cite{auer}; Hedge~\cite{freund} sees every action's cost. No external
+regret drives joint play to the CCE set; no swap regret (regret matching~\cite{hart}) to the CE set.
 
-\textbf{Information designer.} The display chooses a signal policy $\pi$ (what it shows, how delayed or noisy, and
-to whom) to minimise the long-run average social cost; we report $SC(\pi)/SC(\text{opt})$ because some policies
-never settle. \textbf{Assumptions} (unchanged from our brief): each student eats once in their own mess and chooses
-only the time (A1); a scan marks the end of waiting (A2); preferences are private and stable (A3); the policy is
-public, and students see the signal but not others' choices (A4).
+% ============================================================================
+\section{Problem formulation}
+\textbf{Agents.} $n$ students (agents) choose one of $T$ slots of $\Delta$ minutes (mess: $T{=}12$, $\Delta{=}10$);
+the mess office is the information designer. Student $i$ has a private preferred slot $\tau_i$ and flexibility
+$\beta_i$ (minutes of waiting worth one slot of shift). Students with equal $(\tau,\beta)$ form a \emph{type} $k$;
+the state is $X[k,t]$, the number of type-$k$ students in slot $t$, and $A_t=\sum_kX[k,t]$. The cost of a type-$k$
+student in slot $t$ and the social cost are
+\begin{equation}
+c_k(t;A)=W_t(A)+\beta_k|t-\tau_k|,\qquad SC(X)=\textstyle\sum_tA_tW_t(A)+\sum_{k,t}X[k,t]\,\beta_k|t-\tau_k|.
+\end{equation}
+\textbf{Fluid queue.} One counter serves $\mu$ students a minute, first come first served, arrivals spread evenly in
+a slot, leftover queue carried over. With backlog $q_0$ and $r=(A_t-\mu\Delta)/\Delta$ the queue after $u$ minutes is
+$\max(0,q_0+ru)$ and an arrival waits that over $\mu$, so
+$W_t=(q_0+\tfrac{A_t-\mu\Delta}{2})/\mu$ if $r\ge0$, and $W_t=(q_0s+\tfrac{rs^2}{2})/(\Delta\mu)$ with
+$s=\min(\Delta,q_0/(-r))$ otherwise; the next backlog is $\max(0,q_0+A_t-\mu\Delta)$. Total waiting equals the area
+under the queue (Little's law). This is Vickrey's bottleneck model~\cite{vickrey} for roads and a link buffer for
+networks. The game is \emph{atomic}: a deviation from $t$ to $t'$ changes loads to $A-e_t+e_{t'}$.
+\textbf{Designer.} The display picks a signal policy $\pi$ (what it shows, how delayed or noisy, to whom) to minimise
+long-run average cost; we report SC$(\pi)$/SC(opt). Assumptions as in our brief: one mess per student, only the time
+is chosen; a QR scan marks the end of waiting; preferences are private and stable; the policy is public.
 
 % ============================================================================
 \section{Methodology}
+\subsection{Small games, solved exactly}\label{sec:small}
+Three games carry the story. \emph{Pigou's network}: road A costs 1, road B costs $x^p$; selfishly all take B and
+$\mathrm{PoA}(p)=[1-p(p+1)^{-(p+1)/p}]^{-1}$. \emph{Two-student dinner game}: Peak costs the number of students
+there (1 or 2), Late costs $L$. \emph{Intersection (Chicken)}: Stop/Go with utilities 6/6, 2/7, 7/2, 0/0. We
+implement IESDS, pure NE by enumeration, mixed NE by support enumeration, the CE and CCE LPs (best, worst and
+fair objectives), backward induction on game trees, and regret matching / Hedge. For the \emph{sequential} dinner
+game (student 2 sees student 1 on a live counter) we solve the tree by backward induction and list all NE of its
+normal form (student 2 has four plans). A delayed display gives $y_{t+1}=y_t-ky_{t-d}$, stable iff
+$0<k<k^*(d)=2\sin(\pi/(4d+2))$ (checked against the polynomial roots).
+
 \subsection{Equilibrium, optimum and price of anarchy}
 \begin{algorithm}[H]\small
-\caption{Best-response dynamics returning an (\(\varepsilon\)-)Nash equilibrium (\texttt{game.nash\_equilibrium})}\label{alg:br}
+\caption{Best-response dynamics returning an ($\varepsilon$-)Nash equilibrium}\label{alg:br}
 \begin{algorithmic}[1]
 \State start from $X_0$ (everyone at $\tau$; the rounded Wardrop solution; random; the optimum)
-\Repeat
-\State $G[k,t,t'] \gets c_k(t;A)-c_k(t';A-e_t+e_{t'})$ for all $X[k,t]>0$ \Comment{exact one-person gains}
-\State \textbf{if} $\max G\le 0$ \textbf{return} $X$ (exact NE)
-\State record $X$ if $\max G$ is the smallest so far; move one person along $\arg\max G$
-\Until{a state repeats (cycle) or the iteration cap}
-\State \Return the recorded state, with $\varepsilon=$ its largest remaining gain
+\Repeat\; $G[k,t,t']\gets c_k(t;A)-c_k(t';A-e_t+e_{t'})$ for $X[k,t]>0$ \Comment{exact one-person gains}
+\State \textbf{if} $\max G\le0$ \textbf{return} $X$; record $X$ if $\max G$ is the smallest so far; move one student along $\arg\max G$
+\Until{a state repeats or the iteration cap}; \Return the recorded state with $\varepsilon=$ its largest gain
 \end{algorithmic}\end{algorithm}
-\vspace{-0.5em}
-Queue carry-over destroys the potential function, so best response can cycle. We therefore return an
-$\varepsilon$-NE and report $\varepsilon$ (worst case over all 24 mess instances: \textbf{14 seconds}). The large-population
-(Wardrop) equilibrium is found by the method of successive averages, $x\leftarrow x+(\mathrm{BR}(x)-x)/(r+1)$
-(fictitious play), and used as a starting point. The \textbf{social optimum} solves an LP relaxation on a one-minute
-grid (variables $x[k,t]$ and queue lengths $q_m$, constraints $q_m\ge q_{m-1}+a_m-\mu$, objective
-$\sum_m (q_{m-1}+q_m)/2$ plus schedule cost), rounds it while keeping type counts, and polishes it with exact local
-search (one-person moves and two-person swaps). Local search is also started from the NE, so the reported optimum
-is never worse than the NE. PoA compares only equilibria whose $\varepsilon$ is within 6\,s of the best one.
+\vspace{-0.6em}
+Carry-over destroys the potential, so best response can cycle; we return an $\varepsilon$-NE (worst over 24 mess
+instances: \textbf{14\,s}). The large-population (Wardrop) equilibrium comes from the method of successive averages
+(fictitious play). The \textbf{optimum} solves an LP relaxation on a one-minute grid (queue lengths as variables,
+Lindley's recursion as constraints), rounds it, and polishes it with exact one-person moves and swaps; it is never
+worse than the NE.
 
 \subsection{Correlated recommendations at population scale}
-The app picks a schedule $X$ and, \emph{within each type}, shuffles who is told which slot. A type-$k$ person is told
-$t$ with probability $X[k,t]/n_k$ and knows nothing else. Writing $C_j,D_j$ for current and deviation costs under
-schedule $X_j$, a randomisation $p$ over schedules is a CE iff
-$\sum_j p_j X_j[k,t]\,(C_j[k,t]-D_j[k,t,t'])\le 0$ for all $k,t,t'$.
+The app picks a schedule $X$ and, \emph{within each type}, shuffles who is told which slot; a type-$k$ student is told
+$t$ with probability $X[k,t]/n_k$. A randomisation $p$ over schedules is a CE iff
+$\sum_jp_jX_j[k,t](C_j[k,t]-D_j[k,t,t'])\le0$ for all $k,t,t'$ ($C$, $D$: current and deviation costs).
+\begin{proposition}[Shuffled Nash is a CE]\label{p1} If $X$ is an NE, its shuffle is a CE: a student told $t$ knows the
+loads are $A(X)$, and $t$ is a best response for their type. \qed\end{proposition}
+\begin{proposition}[Advice cannot beat Nash in a large crowd]\label{p2} In the non-atomic limit with monotone costs,
+every CCE (hence CE) costs the same as the Wardrop equilibrium $x^*$. \emph{Sketch.} Weighting the CCE inequalities
+by $x^*$ gives $\sum_\omega p_\omega\langle x^\omega-x^*,c(x^\omega)\rangle\le0$; each term is
+$\langle x^\omega-x^*,c(x^\omega)-c(x^*)\rangle\ge0$ (monotonicity) plus $\langle x^\omega-x^*,c(x^*)\rangle\ge0$
+(variational inequality), so both vanish and the loads equal those of $x^*$. \qed\end{proposition}
+\begin{proposition}[Price of obedience]\label{p3} For the optimum $X^\circ$ let $G[k,t]=\max_{t'}(C[k,t]-D[k,t,t'])^+$.
+A reward $G[k,t]$ for arriving in the recommended slot makes the shuffled optimum a CE of the rewarded game.\end{proposition}
+Since carry-over breaks exact monotonicity, we also solve a \textbf{best-CE LP} over 26 candidate schedules (Nash
+equilibria, the optimum and 20 in between) with $\varepsilon$ slack, and its CCE version.
 
-\begin{proposition}[Shuffled Nash is a CE]\label{p1} If $X$ is an NE, the shuffled recommendation is a CE.
-\emph{Proof.} Every realised assignment has type-level schedule $X$; a person told $t$ knows the loads are $A(X)$, and
-$t$ is a best response for their type. \qed\end{proposition}
-\begin{proposition}[Advice cannot beat Nash in a large crowd]\label{p2} In the non-atomic limit with monotone
-congestion costs, every CCE (hence every CE) has the social cost of the Wardrop equilibrium $x^*$.
-\emph{Proof sketch.} Weighting the CCE inequalities by $x^*$ gives $\sum_\omega p_\omega\langle x^\omega-x^*,
-c(x^\omega)\rangle\le0$. Each term is $\langle x^\omega-x^*,c(x^\omega)-c(x^*)\rangle\ge0$ (monotonicity) plus
-$\langle x^\omega-x^*,c(x^*)\rangle\ge0$ (variational inequality), so both vanish: the loads, and hence the cost,
-equal those of $x^*$. \qed\end{proposition}
-\begin{proposition}[Price of obedience]\label{p3} For the optimum $X^\circ$, let
-$G[k,t]=\max_{t'}(C[k,t]-D[k,t,t'])^+$. A reward $b[k,t]=G[k,t]$ for arriving in the recommended slot (e.g.\ a
-priority token) makes the shuffled optimum a CE of the rewarded game, at total transfer
-$\sum_{k,t}X^\circ[k,t]\,G[k,t]$.\end{proposition}
-Our queue has carry-over, so Proposition~\ref{p2} is not exact. We therefore also solve a \textbf{best-CE LP} over
-26 candidate schedules (Nash equilibria, the optimum, and 20 schedules between them), with an $\varepsilon$ slack in
-each obedience constraint, plus its CCE version.
+\subsection{Who causes the queue, and who pays: Shapley value, core, fairness}\label{sec:coop}
+Players are the 12 \emph{arrival groups} (students preferring the same slot). The cost of coalition $S$ is the total
+waiting if only the groups in $S$ come at their preferred slots: $c(S)=\sum_tA_t(S)W_t(A(S))$. We compute the exact
+Shapley value over all $2^{12}$ coalitions (responsibility for the queue), test supermodularity, and solve the
+\emph{least-core} LP $\min\epsilon$ s.t.\ $\sum_Nx=c(N)$, $\sum_Sx\le c(S)+\epsilon$; the core is empty iff
+$\epsilon^*>0$. A \textbf{fair self-funding scheme} recommends the optimum, pays the reward of Prop.~\ref{p3}, and
+charges each student the budget times their group's Shapley share. We compare groups (flexible/average/rigid,
+peak-lovers/others: group parity) and count students worse off than under Nash (a Pareto check).
 
-\textbf{Incomplete information.} If some nights are slow (state $\omega$, prior $P$) and nobody announces it,
-strategies cannot depend on $\omega$, and the Bayesian NE is the NE of the game with $g=\sum_\omega P(\omega)g_\omega$.
-With an announcement (or a mediator who knows $\omega$) people play the NE of the true night.
+\subsection{Agents that plan and learn}
+\textbf{Day-to-day simulator} (one day = one dinner; 150 days, 50 burn-in, 30 seeds, 95\% CIs). Policies: $\pi_0$ no
+information (own memory), $\pi_1$ yesterday's exact crowd, $\pi_2$ 3 meals old, $\pi_3$ plus private noise (sd 3
+min), $\pi_4$ three levels, $\pi_5$ seen by 30\%, $\pi_6$ moving-average forecast, $\pi_7$ the CE recommendation, the
+optimum as advice, and $\pi_8$ the optimum plus the reward. App users are rational (they disobey if it saves $>$6\,s).
+Students respond by logit choice with habit; regimes \emph{calm} ($\lambda{=}3$, 30\% reconsider daily),
+\emph{reactive} ($\lambda{=}3$, all reconsider) and \emph{noisy} ($\lambda{=}1$). \textbf{Learners}: $\varepsilon$-greedy
+(Monte Carlo or TD step 0.1), UCB1 and EXP3 see only their own wait; Hedge and regret matching see every slot's wait.
+\textbf{MDP (within an evening).} A ready student watches the live queue $q$ each minute: \emph{go} (cost $q/\mu$) or
+\emph{wait} (delay cost $d=\beta/\Delta$). Others arrive as Poisson($\lambda_m$), $q'=\max(0,q+a-\mu)$, and
+\begin{equation}
+V_M(q)=q/\mu,\qquad V_m(q)=\min\bigl(q/\mu,\;d+\E[V_{m+1}(q')]\bigr),
+\end{equation}
+solved by backward induction; the policy is a threshold $q^*_m$. A minute-level simulation then lets a share of
+students use it with a counter that is $0$--$10$ minutes old.
 
-\subsection{Day-to-day simulator, policies and behaviour}
-The same people choose every day (one day = one meal; 150 days, 50 burn-in, 30 seeds, 95\% CIs). The policies are
-\textbf{$\pi_0$} no information (own memory of visited slots); \textbf{$\pi_1$} exact crowd cost of the last meal;
-\textbf{$\pi_2$} the same, 3 meals old; \textbf{$\pi_3$} plus private Gaussian noise (sd 3 min); \textbf{$\pi_4$}
-3 levels, read as their historical mean; \textbf{$\pi_5$} the live display seen by 30\%; \textbf{$\pi_6$} an
-exponential moving average forecast; \textbf{$\pi_7$} the CE recommendation (Prop.~\ref{p1}); the optimum as advice;
-and \textbf{$\pi_8$} the optimum plus the reward of Prop.~\ref{p3}. Recommendation users are rational and disobey
-whenever it saves more than 6\,s. Behaviour: logit response with habit, where a share \emph{revise} reconsiders each
-day. The three regimes are \emph{calm} ($\lambda{=}3$, revise 0.3), \emph{reactive} ($\lambda{=}3$, revise 1) and
-\emph{noisy} ($\lambda{=}1$, revise 0.3). Learners: Hedge and regret matching (the app publishes every slot's
-wait) and EXP3 (own wait only). Metrics: mean cost, 90th-percentile wait, \emph{swing} (share of the crowd whose
-slot load moved versus the previous day), and external and swap regret.
+\subsection{The designer under uncertainty}\label{sec:robust}
+\textbf{Bayesian game.} If slow nights (counter at 70\%, probability 0.3) are not announced, strategies cannot depend
+on the state, so the Bayesian NE is the NE of the expected game; with an announcement students play the NE of the
+true night~\cite{harsanyi}. \textbf{Robust choice with alpha-beta.} The office does not know the behaviour regime, so
+it picks $\min_\pi\max_{\text{regime}}$ cost: a two-level game tree (office = MIN, behaviour = MAX) whose leaves are
+simulations. Alpha-beta pruning stops evaluating a policy once one regime makes it worse than the best found;
+the most adversarial regime is evaluated first.
 
 \subsection{Case study and synthetic data}
-Four messes (760/750/745/745 students), breakfast 07:30, lunch 12:00 and dinner 19:30, each 12 ten-minute slots.
-Attendance is 60/85/90\%, varying by student and with $\pm$10\% whole-day shocks. Preferences: a lunch rush about
-13:05 after classes, a dinner rush about 20:10, plus smaller groups. $\beta\in\{1.5,3,6\}$ min/slot. Serving
-rate: 8--9 students/min. On special-menu days (Sunday lunch and breakfast, Wednesday and Sunday dinner)
-attendance is 5 points higher, the counter runs at 80\% speed, and preferences move 10 minutes earlier. We simulate the
-status quo (no display, logit students with memory) for 8 weeks and write a QR-scan log
-(\texttt{date, meal, mess, menu, student\_id, scan\_time}), where scan time = arrival + exact queue wait (A2):
-\textbf{393,747 rows}. A hidden ground-truth table scores our estimators. \textbf{Calibration:} while a queue exists,
-plates leave at rate $\mu$, so the busiest 5-minute scan rate estimates $\mu$; a student's median scan slot on
-normal days estimates $\tau_i$. \textbf{Nowcasting:} predict the scans in the next three slots from tonight's scans
-so far, with N0 (historical mean profile) or N1 (N0 scaled by tonight-so-far over history-so-far), using
-rolling-origin validation.
+Four messes (760/750/745/745 students), breakfast 07:30, lunch 12:00, dinner 19:30; attendance 60/85/90\% with
+$\pm$10\% day shocks; a lunch rush after classes and a dinner rush at 20:10; $\beta\in\{1.5,3,6\}$; $\mu=8$--$9$/min.
+Special menus (Wednesday/Sunday dinner, Sunday lunch and breakfast) bring 5 points more diners, a counter at 80\% and
+earlier preferences. We simulate the status quo for 8 weeks and log 393,747 QR scans (scan = arrival + exact wait).
+From scans alone we estimate $\mu$ (busiest 5-minute scan rate), each $\tau_i$ (median scan slot) and nowcast the
+next 30 minutes (N0 historical mean, N1 scaled by tonight-so-far; rolling origin).
 
 % ============================================================================
 \section{Results}
-\begin{figure}[t]\centering\includegraphics[width=\linewidth]{e0_theory.png}
-\vspace{-1.6em}\caption{Theory. Left: PoA of Pigou's network grows with steepness. Middle: in the intersection game,
-regret matching drives the CE gap of the empirical play to zero; Hedge reaches the coarse CE set. Right: stability
-limit $k^*(d)$ for $y_{t+1}=y_t-k\,y_{t-d}$ (matches the numeric root analysis to $10^{-6}$).}\label{fig:theory}\end{figure}
-
-\textbf{RQ1: what selfish timing costs.} Table~\ref{tab:poa} and Fig.~\ref{fig:poa}. A normal dinner loses
-1.81\,min per student (PoA 6.7) and a special dinner 7.57\,min (PoA 4.6). Across the four messes this is
-\textbf{132 student-hours per normal day}. Normal breakfasts have no queue at all. The planner removes waiting
-entirely by feeding arrivals at exactly the serving rate, at the price of moving some students one or two slots.
-The bumpy Nash profile is genuine: the slot right after a rush inherits its backlog, so arriving at the start of a
-rush is better than just after it. The same 3--8$\times$ gap appears in every domain, and Pigou's 4/3 is recovered
-exactly when the slot model uses linear costs (unit test).
+\subsection{Small games and the cost of selfishness}
+In the dinner game ($L{=}1.5$) a shared counter both react to costs \textbf{3.5}, no information (mixed NE, Peak
+w.p.\ 1/2) \textbf{3.0}, and a private fair coin, a CE, \textbf{2.5}, the optimum. With $L{=}2.5$, Late is strictly
+dominated and IESDS leaves only (Peak, Peak): everyone rushes, as in Pigou's network (PoA $4/3$ for linear, 2.15 for
+$x^4$ costs). In the sequential version backward induction gives the SGPE (Peak, Late) with costs (1, 1.5), efficient
+but favouring the first mover; the NE (Late, ``always Peak'') rests on a non-credible threat. At the intersection the
+best CE gives each driver \textbf{5.25}, more than any mixture of NE (4.67). At scale (Table~\ref{tab:poa},
+Fig.~\ref{fig:poa}) selfish timing costs a normal dinner 1.81\,min per student and a special one 7.57; across four
+messes, \textbf{132 student-hours per normal day}. The same 3--8$\times$ gap appears in every domain.
 
 \begin{table}[H]\centering\small
-\caption{Selfish (Nash) vs.\ planner, minutes per person (mess rows: average of 4 messes). Last three columns (Prop.~\ref{p3}): share of people tempted to disobey the optimum, average obedience reward per person, and time saved per person vs.\ Nash.}\label{tab:poa}
+\caption{Selfish (Nash) vs.\ planner, minutes per person (mess: average of 4 messes). Tempted: share who would disobey
+the optimum; reward and saving per person (Prop.~\ref{p3}).}\label{tab:poa}
 \begin{tabular}{lrrrrrr}\toprule
 Instance & Nash & Optimum & PoA & Tempted & Reward & Saving\\\midrule
 Mess lunch, normal / special & 1.39 / 4.87 & 0.21 / 1.25 & 6.7 / 3.9 & & & \\
@@ -260,116 +263,141 @@ Gym: evening (240) & 1.68 & 0.31 & 5.4 & 13\% & 0.27 & 1.37\\
 Mess dinner, generic (680) & 2.21 & 0.28 & 8.0 & 11\% & 0.27 & 1.93\\\bottomrule
 \end{tabular}\end{table}
 
-\begin{figure}[t]\centering\includegraphics[width=\linewidth]{e2_nash_vs_optimum.png}
-\vspace{-1.6em}\caption{Arrivals per slot at Jaiswal dinner: selfish (orange) overloads the counter (dashed); the
-planner (green) smooths arrivals to capacity.}\label{fig:poa}\end{figure}
+\begin{figure}[tb]\centering\includegraphics[width=0.92\linewidth]{e2_nash_vs_optimum.png}
+\vspace{-0.5em}\caption{Arrivals per slot at Jaiswal dinner: selfish (orange) overloads the counter (dashed); the planner
+(green) feeds it at capacity. The bumps are real: the slot right after a rush inherits its queue.}\label{fig:poa}\end{figure}
 
-\textbf{RQ2: what the display should show.} Fig.~\ref{fig:pol}. \emph{More information can be worse.} For a
-reactive crowd the exact live counter raises the cost from 2.24 (Nash) to \textbf{11.55\,min}, with 76\% of the
-crowd switching slots each day: the rush jumps around, as in the two-student game. Coarse levels do not help
-(12.95), and private noise helps partly (6.94 at sd 3 and 3.2 at sd 8, Fig.~\ref{fig:sweeps}). Showing the counter
-to at most half the crowd costs almost nothing (2.11--2.16), whereas showing it to 70\% raises the cost to 4.95:
-\textbf{H1 holds for a reactive crowd}. For calm crowds no information is cheapest (1.65), but only because people
-keep pessimistic memories. Their positive regret (0.37\,min) means the outcome lasts only while they never learn.
-\textbf{H2 (delay).} With 30\% of people reacting daily the swing grows from 2\% (delay 1) to 11\% (delay 4)
-(Fig.~\ref{fig:sweeps}), as predicted by $k^*(d)$ shrinking with $d$.
+\subsection{What the display should show}
+\textbf{More information can be worse} (Fig.~\ref{fig:pol}). For a reactive crowd, yesterday's exact counter raises
+the cost from 2.24 (Nash) to \textbf{11.55\,min}, with 76\% of students switching slot daily. Coarse levels do not
+help (12.95); private noise helps partly (6.94 at sd 3, 3.2 at sd 8). Showing the counter to at most half the crowd
+costs almost nothing (2.11--2.16) but 70\% viewers raise it to 4.95 (H1 holds for reactive crowds). With 30\% of
+students reacting daily, the swing grows from 2\% (delay 1) to 11\% (delay 4), as $k^*(d)$ predicts (H2).
+\textbf{Within an evening} (Fig.~\ref{fig:mdp}) the MDP policy waits out the peak: flexible students hold back while
+the queue is long, rigid ones never wait. With a \emph{fresh} counter, cost falls from 3.77 (no display) to
+2.75\,min when 75--100\% of students use it; a counter 10 minutes old makes it 4.84, worse than
+no counter, because everyone who waited goes together when an old number looked small. Fresh, staggered information
+helps; stale information shared by many herds, exactly like the sequential vs.\ simultaneous dinner game.
 
-\begin{figure}[t]\centering\includegraphics[width=0.93\linewidth]{e3_policies.png}
-\vspace{-0.8em}\caption{Average cost under each policy and behaviour regime (Jaiswal dinner, 30 seeds, 95\% CI; log
-scale). The CE recommendation ($\pi_7$) gives the same result in every regime; only $\pi_8$ reaches the optimum.}\label{fig:pol}\end{figure}
+\begin{figure}[tb]\centering\includegraphics[width=0.8\linewidth]{e3_policies.png}
+\vspace{-0.4em}\caption{Average cost per policy and behaviour regime (Jaiswal dinner, 30 seeds, 95\% CI, log scale). The CE
+recommendation ($\pi_7$) gives the same result in every regime; only $\pi_8$ reaches the optimum.}\label{fig:pol}\end{figure}
 
-\begin{figure}[t]\centering
-\includegraphics[width=\linewidth]{e4_sweeps.png}\\[2pt]
-\includegraphics[width=0.48\linewidth]{e5_delay_swing.png}
-\vspace{-0.6em}\caption{Top: reactive crowd, cost vs.\ private noise, share of viewers and number of display levels
-(dashed: Nash). Bottom: crowd swing vs.\ display delay and share of people reacting daily.}\label{fig:sweeps}\end{figure}
+\begin{figure}[tb]\centering\includegraphics[width=\linewidth]{e12_mdp.png}
+\vspace{-0.5em}\caption{Go-now-or-wait MDP. Left: optimal threshold by flexibility. Middle: queue in one evening. Right:
+average cost vs.\ share of students using the policy, for counters 0--10 minutes old.}\label{fig:mdp}\end{figure}
 
-\textbf{RQ3: correlated recommendations.} Fig.~\ref{fig:ce}. The Nash-based recommendation is a CE: nobody gains by
-disobeying (0.0\,s at Jaiswal dinner). Its outcome is the same in all three regimes, with zero swing and zero regret.
-With the live display as the fallback for non-users, it removes the herding of a reactive crowd once 50\% (2.53)
-to 70\% (2.12) of students use it. The optimum, by contrast, is \emph{not} a CE: 13\% of students would gain up to
-2.9\,min by disobeying, and when rational students do disobey the cost \emph{rises} to 3.61. The best-CE LP over 26
-schedules returns exactly the Nash cost (2.235), and so does the best CCE, confirming Prop.~\ref{p2}: advice
-coordinates but cannot make people accept worse slots for others. Prop.~\ref{p3} closes the gap. Rewarding the
-13\% sent off-peak with about 2.7 minutes' worth of priority (0.35\,min per student on average) makes the optimum
-self-enforcing ($\pi_8$: \textbf{0.36\,min}, a 6$\times$ reduction). \textbf{H3 is refined}: recommendations close the
-NE--optimum gap only together with obedience rewards.
+\subsection{Correlated recommendations}
+The Nash-based recommendation is a CE (gain from disobeying 0.0\,s), gives the same outcome in all regimes with zero
+swing and zero regret, and with the live counter as fallback removes herding once 50\% (2.53) to 70\% (2.12) of
+students use it (Fig.~\ref{fig:ce}). The optimum is \emph{not} a CE: 13\% of students would gain up to 2.9\,min by
+disobeying, and when they do the cost \emph{rises} to 3.61. The best-CE LP over 26 schedules returns exactly the Nash
+cost (2.235), as does the best CCE, confirming Prop.~\ref{p2}. Prop.~\ref{p3} closes the gap: rewarding the 13\% sent
+off-peak with about 2.7 minutes of priority (0.35 per student on average) makes the optimum self-enforcing
+($\pi_8$: \textbf{0.36\,min}, 6.2$\times$ cheaper than Nash). H3 is thus refined: advice coordinates; rewards improve.
 
-\begin{figure}[t]\centering\includegraphics[width=\linewidth]{e6_correlated.png}
-\vspace{-1.6em}\caption{Left: share of students using CE recommendations (non-users see the live display). Right:
-advice alone (best CE / CCE from the LP) equals Nash; the optimum with the obedience reward is 6$\times$ cheaper.}\label{fig:ce}\end{figure}
+\begin{figure}[tb]\centering\includegraphics[width=\linewidth]{e6_correlated.png}
+\vspace{-0.5em}\caption{Left: share of students using CE recommendations (non-users see the live counter). Right: advice
+alone (best CE / CCE from the LP) equals Nash; the optimum with the obedience reward is 6$\times$ cheaper.}\label{fig:ce}\end{figure}
 
-\textbf{Learning, incomplete information, data.} With published waits, Hedge and regret matching settle near Nash
-(2.29 / 2.31\,min). Their swap regret falls to 0.19 / 0.03\,min per day, i.e.\ joint play approaches a CE, as theory
-predicts. EXP3, which only sees its own wait, still has 5.1\,min of regret after 300 days: publishing data helps
-learning (Fig.~\ref{fig:learn}). In the Bayesian analysis (slow night with probability 0.3, counter at 70\%),
-announcing the night lowers the expected cost from 4.47 to 3.37 (+1.10\,min per student). On \emph{normal} nights,
-however, it raises the cost from 0.88 to 2.24, because the fear of a slow night was keeping people spread out.
-Calibration from scans alone recovers $\mu$ within 2--3\% whenever queues form (it is only a lower bound when they
-never do), and recovers preferred slots for 97\% of students within one slot at dinner (Table~\ref{tab:data}).
+\subsection{Who causes the queue, and a fair way to pay}
+On a normal night (Fig.~\ref{fig:shap}) students preferring 20:00 \emph{cause} 6.0\,min of queue each (Shapley) but
+\emph{suffer} only 2.1; those preferring 20:20 suffer 8.3 but cause 5.5: early arrivals create the queue later ones
+stand in. The cost game is supermodular and its core is empty (least-core $\epsilon=965$ student-minutes): no split
+of the waiting is acceptable to every coalition, so voluntary agreements cannot organise the crowd. Table~\ref{tab:fair}
+shows the scheme of Sec.~\ref{sec:coop}. The optimum alone already helps almost everyone (36 students lose, by at
+most 3\,s), but flexible students carry the inconvenience (1.21 vs.\ 0.00 for rigid ones) and it is not stable. With
+the reward nobody is worse off than under Nash and groups are at parity; with Shapley fees the scheme pays for itself,
+peak-lovers pay most, and no student loses more than 2.5\,s.
 
-\begin{figure}[t]\centering
-\includegraphics[width=\linewidth]{e7_learning.png}\\[2pt]
-\includegraphics[width=\linewidth]{e1_heatmap.png}
-\vspace{-1.4em}\caption{Top: learning over 300 days (dashed: Nash). Bottom: synthetic QR scans per 10 minutes by
-weekday; the plateaus are the serving rate (Sunday lunch, Wednesday and Sunday dinner are special).}\label{fig:learn}\end{figure}
+\begin{figure}[tb]\centering\includegraphics[width=0.92\linewidth]{e13_shapley.png}
+\vspace{-0.5em}\caption{Queue caused (Shapley value) vs.\ queue suffered, per student, by preferred time (Jaiswal dinner).}\label{fig:shap}\end{figure}
 
 \begin{table}[H]\centering\small
-\caption{Learning unknowns from the scan logs (Jaiswal; nowcast MAE averaged over 4 messes, scans per 10-min slot).}\label{tab:data}
-\begin{tabular}{lccccc}\toprule
-Meal, menu & true $\mu$ & estimated $\mu$ & mean scans/slot & N0 MAE & N1 MAE\\\midrule
-Breakfast, normal & 8.0 & 6.2 (no queue: lower bound) & 28.2 & 3.89 & \textbf{3.38}\\
-Breakfast, special & 6.4 & 6.6 & 30.1 & \textbf{3.64} & 3.74\\
-Lunch, normal & 9.0 & 9.2 & 39.8 & \textbf{4.02} & 4.05\\
-Lunch, special & 7.2 & 7.4 & 43.7 & \textbf{3.36} & 3.56\\
-Dinner, normal & 9.0 & 9.2 & 42.3 & \textbf{4.41} & 4.58\\
-Dinner, special & 7.2 & 7.4 & 43.4 & 4.37 & \textbf{3.63}\\
+\caption{Average cost per student by group under the fair self-funding scheme (Jaiswal dinner, minutes; flexibility $\beta$ = 1.5 / 3 / 6).}\label{tab:fair}
+\begin{tabular}{lrrrr}\toprule
+Group & Nash & Optimum, no reward & + obedience reward & + Shapley fee\\\midrule
+Flexible / average / rigid & 2.15 / 2.33 / 2.14 & 1.21 / 0.05 / 0.00 & 0.03 / 0.00 / 0.00 & 0.38 / 0.35 / 0.34\\
+Prefer 20:00--20:30 / other times & 3.38 / 0.46 & 0.59 / 0.00 & 0.01 / 0.00 & 0.58 / 0.01\\
+Everyone & 2.24 & 0.36 & 0.01 & 0.36\\
+Students worse off than Nash (of 678) & -- & 36 ($\le$3\,s) & 0 & 83 ($\le$2.5\,s)\\\bottomrule
+\end{tabular}\end{table}
+
+\subsection{Learning agents, uncertainty, robust choice and data}
+\textbf{Learners} (300 dinners, Table~\ref{tab:learn}). With published waits, Hedge and regret matching settle near Nash
+with small swap regret (play near a CE). Bandit learners differ: sample averages remember the crowded early days, so students stay spread out below Nash (1.92) but keep a high regret (1.14); the TD (constant-step) version tracks the changing crowd (2.10, regret 0.71); UCB1 is deterministic, so identical students herd onto their favourite slot (3.61); EXP3 explores too much (3.99). Publishing every slot's wait is what lets learners reach equilibrium.
+\textbf{Bayesian.} Announcing slow nights lowers the expected cost from 4.47 to 3.37 (+1.10\,min per student), but on
+\emph{normal} nights raises it from 0.88 to 2.24: the fear of a slow night kept people spread out.
+\textbf{Robust choice.} Alpha-beta reaches the same decision as full minimax with 14 of 30 simulated
+(policy, regime) pairs: $\pi_8$ (worst case 0.36\,min). Among information-only policies it picks no information ($\pi_0$)
+(2.11\,min, 10 of 24 pairs), close to the CE recommendation (2.24) which, unlike it, leaves
+nobody with regret. \textbf{Data.} From scans alone, $\mu$ is recovered within 2--3\% whenever a queue forms (only a
+lower bound otherwise) and preferred slots for 97\% of students within one slot; both nowcasts are within 8--14\% of
+the load, N1 helping most when an evening starts unusually.
+
+\begin{table}[H]\centering\small
+\caption{Students as learners (Jaiswal dinner, days 100--300, 10 seeds; minutes).}\label{tab:learn}
+\begin{tabular}{llrrr}\toprule
+Learner & Feedback & Cost & Swing & Swap regret\\\midrule
+$\varepsilon$-greedy, Monte Carlo average & own wait & 1.92 & 2\% & 1.14\\
+$\varepsilon$-greedy, TD (step 0.1) & own wait & 2.10 & 2\% & 0.71\\
+UCB1 & own wait & 3.61 & 0\% & 2.21\\
+EXP3 & own wait & 3.99 & 6\% & 5.13\\
+Hedge & all slots & 2.29 & 2\% & 0.19\\
+Regret matching & all slots & 2.31 & 0\% & 0.03\\
 \bottomrule\end{tabular}\end{table}
-\vspace{-0.4em}
-\noindent\textbf{RQ4: nowcasting.} Both forecasters predict the next 30 minutes within 8--14\% of the mean load.
-Scaling by tonight's scans (N1) helps most when an evening starts unusually (normal breakfasts $-13\%$, special
-dinners $-17\%$); elsewhere the two are within 5\%, as the extra information in a few early scans is offset by their
-noise. Preferred slots are recovered exactly for 80\% of students at dinner (97\% within one slot).
+
+% ============================================================================
+\section{Implementation: library, website and interactive lab}\label{sec:impl}
+All results come from one tested Python library, \texttt{crowd/} (one file per layer: \texttt{theory},
+\texttt{game}, \texttt{correlated}, \texttt{simulate}, \texttt{domains}, \texttt{mess}), with 61 unit tests that check
+every quoted claim. \texttt{python experiments.py} regenerates all 15 experiments, every figure, the results file
+and the website's data. We built two front ends (Fig.~\ref{fig:shots}). The \textbf{website}
+(\url{https://yashg1836.github.io/crowd-congestion/}) tells the story in one page with interactive games, a day-by-day
+playback of the display policies and a student's phone. The \textbf{interactive lab}
+(\url{https://crowd-congestion.streamlit.app/}) runs every experiment live: any mess, meal, domain, policy, behaviour,
+share of app users or counter delay. The code is at \url{https://github.com/YashG1836/crowd-congestion}.
+
+\begin{figure}[tb]\centering\includegraphics[width=0.88\linewidth]{screenshots.png}
+\vspace{-0.4em}\caption{(a) Website overview. (b) Website: the rush jumping under a live counter (day 61). (c) Lab: display
+policies, reactive crowd. (d) Lab: correlated recommendations, obedience and rewards.}\label{fig:shots}\end{figure}
 
 % ============================================================================
 \section{Limitations and future work}
-All data are synthetic, so the conclusions are about mechanisms (herding, obedience, the price of obedience), not
-exact IITGN minutes. The fluid queue spreads arrivals evenly, so the optimum's zero wait (and hence the PoA) is
-optimistic. With carry-over the game has no potential, so we report $\varepsilon$-equilibria (at most 14\,s). The
-optional scarcity penalty makes the game lumpier ($\varepsilon$ up to about 2\,min), so it is off by default. Behaviour
-models are assumptions, and we report which conclusions change across them. Future work: a Telegram bot pilot in one
-mess; dosa tokens or pre-booked slots as non-monetary tolls; choice between messes (a routing game, where Braess
-effects are possible); differentially private displays; and a second scan at the queue entrance to measure waits.
+All data are synthetic, so the conclusions concern mechanisms (herding, obedience, the price of obedience), not exact
+IITGN minutes. The fluid queue makes the optimum's wait (and the PoA) optimistic. Carry-over removes the potential, so
+we report $\varepsilon$-equilibria ($\le$14\,s). Behaviour models are assumptions; we report which conclusions change
+across them. Next: a pilot bot in one mess, dosa tokens as the reward, choice between messes (a routing game), and a
+second scan at the queue entrance to measure waits.
 
 % ============================================================================
 \needspace{18\baselineskip}
 \section{Contribution}
-The work was split into four packages, one per member, following the plan in our project brief. All four members
-took part in the modelling decisions, the analysis of results and the writing of this report.
+The work was split into four packages, one per member, following our project brief. All members took part in the
+modelling decisions, the analysis and the writing.
 \begin{table}[H]\centering\small
-\caption{Work packages, what each member delivered (files in \texttt{crowd/} and experiments), and status.}\label{tab:contrib}
+\caption{Work packages, deliverables (files in \texttt{crowd/}, experiments) and status.}\label{tab:contrib}
 \begin{tabular}{>{\raggedright\arraybackslash}p{2.3cm}>{\raggedright\arraybackslash}p{10.6cm}>{\raggedright\arraybackslash}p{2.3cm}}\toprule
 Member & Work package and deliverables & Status\\\midrule
-Harsh Kumar Jha & \textbf{Data and case study.} Mess scenario (4 messes, 3 meals, special menus), synthetic roster
-and QR-scan logs, serving-rate and preference calibration, nowcasting N0/N1 (\texttt{mess.py}; E1, E9). &
-\textbf{Fulfilled}$^{a}$\\
-Yash Goyal & \textbf{Incomplete information, learning and statistics.} Bayesian game and value of information;
-Hedge, EXP3 and regret-matching learners; 30-seed confidence intervals; Streamlit demo, README and repository
-(\texttt{correlated.py}, \texttt{simulate.py}, \texttt{app.py}; E7, E8). & \textbf{Fulfilled}\\
-Piyush Kumar Keshri & \textbf{Equilibria and correlated equilibrium.} Toy games; NE, CE and CCE linear programs;
-Nash, Wardrop and optimum solvers; price of anarchy; CE recommender, Propositions 1--3, best-CE LP and obedience
-reward (\texttt{theory.py}, \texttt{game.py}, \texttt{correlated.py}; E0, E2, E6). & \textbf{Fulfilled} (extended with $\pi_8$)\\
-Garv Singhal & \textbf{Simulator and information policies.} Day-to-day simulator, policies $\pi_0$--$\pi_8$, behaviour
-regimes, sweeps, delay and crowd-swing analysis, generic domains (\texttt{simulate.py}, \texttt{domains.py};
-E3--E5). & \textbf{Fulfilled}\\\bottomrule
+Harsh Kumar Jha & \textbf{Data and case study.} Mess scenario, synthetic roster and QR-scan logs, calibration,
+nowcasting (\texttt{mess.py}; E1, E9). & \textbf{Fulfilled}$^{a}$\\
+Yash Goyal & \textbf{Learning, uncertainty, statistics, integration.} Bayesian game; bandit, TD and no-regret learners;
+confidence intervals; website, Streamlit lab, README (\texttt{correlated.py}, \texttt{simulate.py}, \texttt{app.py},
+\texttt{docs/}; E7, E8, E11). & \textbf{Fulfilled}\\
+Piyush Kumar Keshri & \textbf{Equilibria and cooperation.} Small games (dominance, NE, SGPE, CE LPs); Nash, Wardrop and
+optimum solvers; PoA; CE recommender, Props.~1--3, best-CE LP; Shapley value, core, fair scheme (\texttt{theory.py},
+\texttt{game.py}, \texttt{correlated.py}; E0, E2, E6, E10, E13, E14). & \textbf{Fulfilled} (extended with $\pi_8$)\\
+Garv Singhal & \textbf{Simulator, policies and planning.} Day-to-day simulator, $\pi_0$--$\pi_8$, sweeps and delay,
+go-now-or-wait MDP, robust choice with alpha-beta, generic domains (\texttt{simulate.py}, \texttt{domains.py}; E3--E5,
+E12, E15). & \textbf{Fulfilled}\\\bottomrule
 \end{tabular}
 
 \vspace{2pt}\raggedright\footnotesize $^{a}$As agreed with our advisor, real scan logs were replaced by a synthetic
 semester, and the manual queue-timing study by the generator's ground-truth waits.
 \end{table}
-{\sloppy\noindent\textbf{Reproducibility:}
-\texttt{pip install -r requirements.txt; pytest -q} (54 checks); \texttt{python experiments.py} regenerates every
-figure and number in this report (\texttt{results/RESULTS.md}); \texttt{streamlit run app.py} opens the demo, which is also hosted at \url{https://crowd-congestion.streamlit.app/}.\par}
+{\sloppy\noindent\textbf{Reproducibility:} \texttt{pip install -r requirements.txt; pytest -q; python experiments.py;
+streamlit run app.py}. Code: \url{https://github.com/YashG1836/crowd-congestion}; website:
+\url{https://yashg1836.github.io/crowd-congestion/}; lab: \url{https://crowd-congestion.streamlit.app/}.\par}
 
 \begin{thebibliography}{99}\small\setlength{\itemsep}{0pt}
 \bibitem{arthur} W.~B.~Arthur. Inductive reasoning and bounded rationality. \emph{AER}, 84(2):406--411, 1994.
@@ -379,10 +407,11 @@ figure and number in this report (\texttt{results/RESULTS.md}); \texttt{streamli
 \bibitem{koutsoupias} E.~Koutsoupias, C.~Papadimitriou. Worst-case equilibria. \emph{STACS}, 404--413, 1999.
 \bibitem{roughgarden} T.~Roughgarden, \'E.~Tardos. How bad is selfish routing? \emph{J.\ ACM}, 49(2):236--259, 2002.
 \bibitem{harsanyi} J.~C.~Harsanyi. Games with incomplete information played by ``Bayesian'' players, I--III. \emph{Mgmt.\ Sci.}, 14(3):159--182, 1967.
-\bibitem{mckelvey} R.~D.~McKelvey, T.~R.~Palfrey. Quantal response equilibria for normal form games. \emph{GEB}, 10(1):6--38, 1995.
 \bibitem{freund} Y.~Freund, R.~E.~Schapire. A decision-theoretic generalization of on-line learning. \emph{JCSS}, 55(1):119--139, 1997.
 \bibitem{auer} P.~Auer, N.~Cesa-Bianchi, Y.~Freund, R.~E.~Schapire. The nonstochastic multiarmed bandit problem. \emph{SICOMP}, 32(1):48--77, 2002.
 \bibitem{hart} S.~Hart, A.~Mas-Colell. A simple adaptive procedure leading to correlated equilibrium. \emph{Econometrica}, 68(5):1127--1150, 2000.
 \bibitem{vickrey} W.~S.~Vickrey. Congestion theory and transport investment. \emph{AER}, 59(2):251--260, 1969.
+\bibitem{shapley} L.~S.~Shapley. A value for n-person games. In \emph{Contributions to the Theory of Games II}, 307--317, 1953.
+\bibitem{sutton} R.~S.~Sutton, A.~G.~Barto. \emph{Reinforcement Learning: An Introduction}, 2nd ed. MIT Press, 2018.
 \end{thebibliography}
 \end{document}

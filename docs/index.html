@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coordinating Crowds</title>
+<meta name="description" content="Congestion games, information design and correlated equilibrium, with a case study of the IITGN mess.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#fbfaf7; --surface:#ffffff; --surface-2:#f3f1ec; --line:#e4e1da;
+  --text:#14130f; --text-2:#55534d; --muted:#8a8780;
+  --ce:#2a78d6; --ne:#eb6834; --opt:#1baf7a; --gold:#eda100; --violet:#6250d6; --pink:#e87ba4;
+  --ce-soft:#e3eefb; --ne-soft:#fde9df; --opt-soft:#dcf4ea;
+  --shadow:0 1px 2px rgba(20,19,15,.05),0 8px 24px rgba(20,19,15,.06);
+  --radius:16px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131311; --surface:#1b1b19; --surface-2:#232320; --line:#33332f;
+    --text:#f0efec; --text-2:#c3c2b7; --muted:#8e8d86;
+    --ce:#3987e5; --ne:#d95926; --opt:#199e70; --gold:#c98500; --violet:#9085e9; --pink:#d55181;
+    --ce-soft:#1d2a3b; --ne-soft:#3a241b; --opt-soft:#16302a;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131311; --surface:#1b1b19; --surface-2:#232320; --line:#33332f;
+  --text:#f0efec; --text-2:#c3c2b7; --muted:#8e8d86;
+  --ce:#3987e5; --ne:#d95926; --opt:#199e70; --gold:#c98500; --violet:#9085e9; --pink:#d55181;
+  --ce-soft:#1d2a3b; --ne-soft:#3a241b; --opt-soft:#16302a;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:var(--ce);text-decoration:none} a:hover{text-decoration:underline}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,monospace;font-size:.88em}
+.wrap{max-width:1080px;margin:0 auto;padding:0 20px}
+nav{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:18px;height:56px;overflow-x:auto;white-space:nowrap}
+nav .brand{font-weight:800;letter-spacing:-.02em;color:var(--text)}
+nav a.l{color:var(--text-2);font-size:14px}
+nav .sp{flex:1}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;font-weight:600;font-size:14px;border:1px solid var(--line);background:var(--surface);color:var(--text);cursor:pointer;transition:transform .1s}
+.btn:hover{text-decoration:none;transform:translateY(-1px)}
+.btn.primary{background:var(--text);color:var(--bg);border-color:var(--text)}
+.btn.small{padding:6px 12px;font-size:13px}
+.btn[aria-pressed="true"]{background:var(--ce);border-color:var(--ce);color:#fff}
+header.hero{padding:72px 0 40px}
+.kicker{font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ce)}
+h1{font-size:clamp(34px,5.4vw,60px);line-height:1.05;letter-spacing:-.035em;margin:12px 0 18px;font-weight:800}
+h1 em{font-style:normal;background:linear-gradient(90deg,var(--ne),var(--ce) 55%,var(--opt));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{font-size:19px;color:var(--text-2);max-width:760px}
+.cta{display:flex;flex-wrap:wrap;gap:10px;margin-top:26px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:40px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px;box-shadow:var(--shadow)}
+.stat b{display:block;font-size:30px;letter-spacing:-.02em;line-height:1.1}
+.stat span{color:var(--text-2);font-size:14px}
+section{padding:56px 0;border-top:1px solid var(--line)}
+h2{font-size:clamp(26px,3.4vw,36px);letter-spacing:-.025em;margin:6px 0 10px;line-height:1.15}
+h3{font-size:18px;margin:0 0 6px;letter-spacing:-.01em}
+.sub{color:var(--text-2);max-width:780px;margin:0 0 24px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);min-width:0}
+.card p{margin:.3em 0;color:var(--text-2)}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;background:var(--surface-2);color:var(--text-2)}
+.pill.ce{background:var(--ce-soft);color:var(--ce)} .pill.ne{background:var(--ne-soft);color:var(--ne)} .pill.opt{background:var(--opt-soft);color:var(--opt)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--text-2);margin:6px 0}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.chart{width:100%;min-height:120px}
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0 12px}
+.controls label{font-size:14px;color:var(--text-2)}
+input[type=range]{accent-color:var(--ce);width:220px}
+.kpis{display:flex;flex-wrap:wrap;gap:22px;margin:10px 0}
+.kpis div{font-size:13px;color:var(--text-2)} .kpis b{display:block;font-size:22px;color:var(--text);letter-spacing:-.01em}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.matrix td,.matrix th{text-align:center}
+.callout{border-left:4px solid var(--ce);background:var(--ce-soft);padding:14px 16px;border-radius:0 12px 12px 0;color:var(--text);margin:14px 0}
+.callout.ne{border-color:var(--ne);background:var(--ne-soft)} .callout.opt{border-color:var(--opt);background:var(--opt-soft)}
+.phone{width:240px;border-radius:32px;border:10px solid var(--text);background:var(--surface);padding:18px 16px;margin:0 auto;box-shadow:var(--shadow)}
+.phone .notch{width:70px;height:6px;border-radius:6px;background:var(--line);margin:-6px auto 14px}
+.phone .slot{font-size:38px;font-weight:800;letter-spacing:-.03em}
+.phone small{color:var(--text-2)}
+.steps{counter-reset:s;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.steps .card:before{counter-increment:s;content:counter(s);display:inline-grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--text);color:var(--bg);font-weight:700;font-size:14px;margin-bottom:8px}
+.shots{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.tag{font-size:12px;color:var(--muted)}
+footer{padding:40px 0 80px;color:var(--text-2);font-size:14px;border-top:1px solid var(--line)}
+.tt{position:fixed;pointer-events:none;background:var(--text);color:var(--bg);font-size:12px;padding:6px 9px;border-radius:8px;opacity:0;transition:opacity .1s;z-index:50;white-space:nowrap}
+@media (max-width:860px){.grid2,.grid3,.steps,.shots{grid-template-columns:1fr}.stats{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="tt" id="tt"></div>
+<nav><div class="wrap">
+  <span class="brand">Coordinating Crowds</span>
+  <a class="l" href="#problem">Problem</a><a class="l" href="#games">Small games</a><a class="l" href="#mess">The mess</a>
+  <a class="l" href="#display">The display</a><a class="l" href="#ce">Recommendations</a><a class="l" href="#more">More</a>
+  <a class="l" href="#course">Course map</a><span class="sp"></span>
+  <a class="btn small" id="themeBtn" href="#" aria-label="toggle dark mode">◐</a>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <div class="kicker">Foundations of AI · Multi-agent systems · IIT Gandhinagar</div>
+  <h1>Everyone comes at once.<br><em>Who should be told what?</em></h1>
+  <p class="lead">Cars at a bridge, backups on a network, diners at a food court, students at the hostel mess: many people share one bottleneck and each picks <b>when</b> to use it. The rush is a <b>coordination</b> problem, not a capacity problem. We model it as a game, ask what a crowd display should show, and use <b>correlated equilibrium</b> (private advice people want to follow) to fix it. Then we test everything on the four IITGN messes.</p>
+  <div class="cta">
+    <a class="btn primary" id="lnkReport" target="_blank" rel="noopener">Read the report (PDF)</a>
+    <a class="btn" id="lnkApp" target="_blank" rel="noopener">Open the interactive lab</a>
+    <a class="btn" id="lnkRepo" target="_blank" rel="noopener">Source code</a>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="sHours">–</b><span>student-hours lost to selfish timing every normal day (4 messes)</span></div>
+    <div class="stat"><b id="sHerd">–</b><span>average cost when everyone reacts to a live counter (Nash: <span id="sNash"></span>)</span></div>
+    <div class="stat"><b id="sCE">0 %</b><span>crowd swing with correlated recommendations, in every behaviour model</span></div>
+    <div class="stat"><b id="sReward">–</b><span>cheaper than selfish play with advice + a small obedience reward</span></div>
+  </div>
+</div></header>
+
+<section id="problem"><div class="wrap">
+  <div class="kicker">1 · The problem</div>
+  <h2>One model, many crowded places</h2>
+  <p class="sub">Each place is the same game: <b>n</b> people, <b>12 time slots</b>, one bottleneck serving <b>μ</b> people a minute. Your cost = time in the queue + inconvenience of going away from your favourite time. Every person who joins a queue delays everyone behind them, but only feels their own wait. So selfish choices (a <b>Nash equilibrium</b>) cost far more than the schedule a planner would pick.</p>
+  <div class="card"><table id="domTable"><thead><tr><th>Facility</th><th>Who</th><th class="num">Selfish (Nash), min</th><th class="num">Planner, min</th><th class="num">Price of anarchy</th></tr></thead><tbody></tbody></table>
+  <p class="tag" style="margin-top:8px">Minutes per person per visit. The queue model is Vickrey's bottleneck (roads) = a link buffer (networks) = a food counter.</p></div>
+</div></section>
+
+<section id="games"><div class="wrap">
+  <div class="kicker">2 · Three small games, solved exactly</div>
+  <h2>The whole idea in three tiny games</h2>
+  <p class="sub">Small enough to solve by hand, and they carry the whole story: selfishness wastes, shared information can backfire, and private correlated advice can do better than any Nash equilibrium.</p>
+  <div class="grid3">
+    <div class="card">
+      <span class="pill ne">Price of anarchy</span>
+      <h3 style="margin-top:8px">Pigou's two roads</h3>
+      <p>Road A always costs 1. Road B costs x<sup>p</sup> if a share x uses it. Selfishly everyone takes B. A planner splits the traffic.</p>
+      <div class="controls"><label>steepness p = <b id="pVal">1</b></label><input id="pSl" type="range" min="1" max="12" step="0.5" value="1"></div>
+      <div class="kpis"><div><b id="pPoa">1.33</b>price of anarchy</div><div><b id="pShare">50%</b>planner's share on B</div></div>
+      <div class="chart" id="pigouChart"></div>
+      <p class="tag">Steep queues (a dosa night) waste more.</p>
+    </div>
+    <div class="card">
+      <span class="pill ce">Correlated equilibrium</span>
+      <h3 style="margin-top:8px">Two students, Peak or Late</h3>
+      <p>Peak costs the number of students there (1 or 2). Late always costs <b>L</b>.</p>
+      <div class="controls"><label>L = <b id="lVal">1.5</b></label><input id="lSl" type="range" min="1.1" max="2.9" step="0.1" value="1.5"></div>
+      <table class="matrix" id="dinnerMatrix"></table>
+      <div class="chart" id="dinnerChart"></div>
+      <p class="tag" id="dinnerNote"></p>
+    </div>
+    <div class="card">
+      <span class="pill opt">Beyond Nash</span>
+      <h3 style="margin-top:8px">A traffic light</h3>
+      <p>Two drivers: Stop or Go. Payoffs: both stop 6/6, one goes 7 vs 2, both go = crash 0/0.</p>
+      <div class="chart" id="lightChart"></div>
+      <div class="callout">The best <b>correlated equilibrium</b> (a linear program) says: ½ both stop, ¼ each goes alone. Each driver gets <b>5.25</b>, more than any mixture of Nash equilibria (4.67). It never recommends a crash.</div>
+    </div>
+  </div>
+</div></section>
+
+<section id="mess"><div class="wrap">
+  <div class="kicker">3 · The case study</div>
+  <h2>Dinner at the Jaiswal mess</h2>
+  <p class="sub">4 messes, 3000 students, breakfast / lunch / dinner of 2 hours each (synthetic data built from these facts). Orange = what selfish students do (Nash equilibrium, found by best-response dynamics). Green = the planner's schedule (linear programming + local search). The dashed line is what the counter can serve in 10 minutes.</p>
+  <div class="controls"><button class="btn small" data-night="normal" aria-pressed="true">Normal night</button><button class="btn small" data-night="special" aria-pressed="false">Special menu (dosa night)</button></div>
+  <div class="grid2">
+    <div class="card"><h3>Arrivals per 10-minute slot</h3><div class="legend"><span><i style="background:var(--ne)"></i>selfish (Nash)</span><span><i style="background:var(--opt)"></i>planner</span><span><i style="background:var(--muted)"></i>capacity</span></div><div class="chart" id="messChart"></div></div>
+    <div class="card"><h3>Wait of someone arriving in each slot</h3><div class="legend"><span><i style="background:var(--ne)"></i>selfish (Nash)</span><span><i style="background:var(--opt)"></i>planner</span></div><div class="chart" id="waitChart"></div>
+      <div class="kpis"><div><b id="mNash"></b>selfish cost / student</div><div><b id="mOpt"></b>planner cost / student</div><div><b id="mPoa"></b>price of anarchy</div></div></div>
+  </div>
+  <div class="callout ne">The planner feeds students in at exactly the serving rate, so the queue never builds; the price is that some eat a slot or two away from their favourite time. The bumpy orange profile is real: the slot right after a rush inherits its queue.</div>
+</div></section>
+
+<section id="display"><div class="wrap">
+  <div class="kicker">4 · Information design</div>
+  <h2>What should the mess display show?</h2>
+  <p class="sub">Same 678 students, 120 dinners in a row. Each day they see the display and pick a slot (a logit choice: better slots are chosen more often). Here everyone reconsiders every day, the case where information is most dangerous. Press play and compare.</p>
+  <div class="controls" id="polBtns"></div>
+  <div class="controls"><button class="btn small" id="playBtn">▶ Play</button><label>day <b id="dayVal">1</b></label><input id="daySl" type="range" min="0" max="119" value="0"></div>
+  <div class="grid2">
+    <div class="card"><h3>Arrivals today</h3><div class="chart" id="playChart"></div><p class="tag" id="polNote"></p></div>
+    <div class="card"><h3>Average cost per student, day by day</h3><div class="legend"><span><i style="background:var(--ce)"></i>this policy</span><span><i style="background:var(--ne)"></i>Nash</span><span><i style="background:var(--opt)"></i>planner</span></div><div class="chart" id="costChart"></div>
+      <div class="kpis"><div><b id="pCost"></b>average cost (days 40-120)</div><div><b id="pSwing"></b>of students switch slot each day</div></div></div>
+  </div>
+  <div class="card" style="margin-top:18px"><h3>All policies × three kinds of crowd (30 random seeds each)</h3><div style="overflow-x:auto"><table id="polTable"></table></div>
+    <p class="tag">Minutes per student per dinner. Calm: 30% reconsider each day. Reactive: everyone reconsiders. Noisy: low rationality. The CE recommendation gives the same result everywhere; only the reward reaches the planner's optimum.</p></div>
+</div></section>
+
+<section id="ce"><div class="wrap">
+  <div class="kicker">5 · The main idea</div>
+  <h2>Advice people <em style="font-style:normal;color:var(--ce)">want</em> to follow</h2>
+  <p class="sub">The app privately tells each student a slot. Inside each group of similar students the slots are shuffled every day. The advice is a <b>correlated equilibrium</b> if nobody can gain by disobeying, given that everyone else obeys. Pick what the app recommends and look at one student's phone:</p>
+  <div class="controls" id="phoneBtns"></div>
+  <div class="grid2">
+    <div class="card" style="display:grid;place-items:center"><div class="phone"><div class="notch"></div><small>Mess app · today</small><div class="slot" id="phSlot">20:10</div><small id="phPref"></small><div id="phReward" style="margin-top:10px;font-size:14px"></div><div id="phVerdict" style="margin-top:12px;font-weight:600;font-size:14px"></div></div></div>
+    <div class="card"><h3>This student's cost in every slot, if everyone else follows the app</h3><div class="chart" id="phoneChart"></div><p class="tag">Blue bar = the recommended slot. If it is the lowest bar, obeying is the best choice: the advice is self-enforcing.</p></div>
+  </div>
+  <div class="grid3" style="margin-top:18px">
+    <div class="card"><span class="pill ce">Proposition 1</span><h3 style="margin-top:8px">Shuffled Nash = correlated equilibrium</h3><p>Every shuffle of a Nash schedule is itself a Nash equilibrium, so obeying is always a best response. Stable from day one, and inconvenient slots rotate.</p></div>
+    <div class="card"><span class="pill ne">Proposition 2</span><h3 style="margin-top:8px">Advice alone cannot beat Nash</h3><p>In a large crowd with monotone costs every (coarse) correlated equilibrium costs exactly what Nash costs. Our linear program over 26 schedules confirms it: <b id="ceLP"></b>.</p></div>
+    <div class="card"><span class="pill opt">Proposition 3</span><h3 style="margin-top:8px">A small reward closes the gap</h3><p>The CE constraints give the smallest reward that makes the optimum self-enforcing: <b id="ceReward"></b>. Average cost falls from <b id="ceFrom"></b> to <b id="ceTo"></b>.</p></div>
+  </div>
+  <div class="grid2" style="margin-top:18px">
+    <div class="card"><h3>How many students must use the app?</h3><div class="legend"><span><i style="background:var(--gold)"></i>reactive crowd</span><span><i style="background:var(--ce)"></i>calm crowd</span><span><i style="background:var(--ne)"></i>Nash</span></div><div class="chart" id="compChart"></div><p class="tag">Non-users see the live counter. Half the crowd on the app removes the herding.</p></div>
+    <div class="card"><h3>Who causes the queue? (Shapley value)</h3><div class="legend"><span><i style="background:var(--ne)"></i>queue caused, per student</span><span><i style="background:var(--ce)"></i>queue suffered, per student</span></div><div class="chart" id="shapChart"></div><p class="tag" id="shapNote"></p></div>
+  </div>
+  <div class="card" style="margin-top:18px"><h3>A fair, self-funding scheme</h3><p>Recommend the optimum, pay the obedience reward, and charge each student a fee proportional to the queue their arrival group causes (its Shapley share). Average cost per student by group:</p><div style="overflow-x:auto"><table id="fairTable"></table></div><p class="tag" id="fairNote"></p></div>
+</div></section>
+
+<section id="more"><div class="wrap">
+  <div class="kicker">6 · Same problem, other lenses</div>
+  <h2>Live counter, learning, uncertainty</h2>
+  <div class="grid2">
+    <div class="card"><span class="pill">MDP</span><h3 style="margin-top:8px">Go now or wait? (within one evening)</h3><p>With a live counter, a ready student can wait for the queue to shrink. This is a Markov decision process; value iteration gives a threshold policy. A fresh counter helps everyone; a stale one makes students rush together.</p>
+      <div class="legend"><span><i style="background:var(--muted)"></i>no display</span><span><i style="background:var(--ce)"></i>everyone, fresh counter</span><span><i style="background:var(--ne)"></i>everyone, 5-min-old counter</span></div><div class="chart" id="mdpChart"></div><div class="kpis" id="mdpKpis"></div></div>
+    <div class="card"><span class="pill">MAB · RL</span><h3 style="margin-top:8px">Students who learn (300 dinners)</h3><p>Bandit learners only see their own wait; full-information learners see every slot's wait (if the app publishes it). Swap regret 0 means their play is a correlated equilibrium.</p><div style="overflow-x:auto"><table id="learnTable"></table></div></div>
+  </div>
+  <div class="grid3" style="margin-top:18px">
+    <div class="card"><span class="pill">Extensive form</span><h3 style="margin-top:8px">A counter that shows earlier arrivals</h3><p>If student 2 sees student 1's choice, the game becomes sequential. Backward induction gives the subgame-perfect equilibrium <b>(Peak, Late)</b>: efficient, but the first mover gets the better slot. A Nash equilibrium with the threat "I will go at the peak anyway" exists but is not credible.</p></div>
+    <div class="card"><span class="pill">Bayesian game</span><h3 style="margin-top:8px">Should the mess announce slow nights?</h3><p id="bayesText"></p></div>
+    <div class="card"><span class="pill">Alpha-beta</span><h3 style="margin-top:8px">A robust choice of display</h3><p id="abText"></p></div>
+  </div>
+</div></section>
+
+<section id="course"><div class="wrap">
+  <div class="kicker">7 · Course map</div>
+  <h2>Where each topic of the course is used</h2>
+  <div class="card" style="overflow-x:auto"><table>
+    <thead><tr><th>Topic taught</th><th>What we do with it</th><th>Result</th></tr></thead><tbody id="courseTable"></tbody></table></div>
+</div></section>
+
+<section id="reproduce"><div class="wrap">
+  <div class="kicker">8 · Everything is reproducible</div>
+  <h2>Run it yourself</h2>
+  <div class="steps">
+    <div class="card"><h3>Install</h3><p><code>pip install -r requirements.txt</code></p></div>
+    <div class="card"><h3>Check</h3><p><code>pytest -q</code> runs the tests of every claim.</p></div>
+    <div class="card"><h3>Reproduce</h3><p><code>python experiments.py</code> regenerates every figure, the results file and this page's data.</p></div>
+  </div>
+  <div class="callout" style="margin-top:18px">Want to change the numbers yourself? The <a id="lnkApp2" target="_blank" rel="noopener">interactive lab (Streamlit)</a> runs every experiment live: pick a mess, a meal, a display policy, a share of app users, and watch the results update. The <a id="lnkReport2" target="_blank" rel="noopener">report</a> has the full method and proofs.</div>
+</div></section>
+
+<footer><div class="wrap">
+  Harsh Kumar Jha · Yash Goyal · Piyush Kumar Keshri · Garv Singhal — Foundations of AI, IIT Gandhinagar.
+  All data are synthetic. Numbers on this page come from <code>docs/data.js</code>, written by <code>experiments.py</code>.
+</div></footer>
+
+<script src="data.js"></script>
+<script>
+const D = window.DATA, S = D.summary, L = D.labels;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+const fmt = (x, d = 2) => (x === null || x === undefined || Number.isNaN(x)) ? "–" : Number(x).toFixed(d);
+const tt = $("tt");
+function tip(el, text) {
+  el.addEventListener("mousemove", e => { tt.textContent = text; tt.style.opacity = 1; tt.style.left = (e.clientX + 12) + "px"; tt.style.top = (e.clientY - 28) + "px"; });
+  el.addEventListener("mouseleave", () => tt.style.opacity = 0);
+}
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function niceMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); const m = v / p; return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p; }
+
+// ------------------------------------------------------------------ chart helpers
+function bars(target, o) {
+  const box = $(target); box.innerHTML = "";
+  const W = o.width || 560, H = o.height || 260, m = {l: 44, r: 10, t: 12, b: o.rotate ? 64 : 30};
+  const svg = el("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": o.aria || "bar chart"}, box);
+  const all = o.series.flatMap(s => s.values).concat((o.ref || []).map(r => r.value));
+  const ymax = o.ymax || niceMax(Math.max(...all) * 1.08);
+  const x0 = m.l, x1 = W - m.r, y0 = H - m.b, y1 = m.t;
+  const y = v => y0 - (v / ymax) * (y0 - y1);
+  for (let i = 0; i <= 4; i++) { const v = ymax * i / 4; el("line", {x1: x0, x2: x1, y1: y(v), y2: y(v), stroke: css("--line")}, svg); const t = el("text", {x: x0 - 6, y: y(v) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted")}, svg); t.textContent = +v.toFixed(2); }
+  const n = o.labels.length, band = (x1 - x0) / n, k = o.series.length, gap = 2, bw = Math.max(2, (band * 0.78 - gap * (k - 1)) / k);
+  o.series.forEach((s, j) => s.values.forEach((v, i) => {
+    const bx = x0 + i * band + band * 0.11 + j * (bw + gap);
+    const color = typeof s.color === "function" ? s.color(i) : s.color;
+    const r = el("rect", {x: bx, y: y(Math.max(v, 0)), width: bw, height: Math.max(0, y0 - y(Math.max(v, 0))), rx: Math.min(4, bw / 2), fill: color}, svg);
+    tip(r, `${o.labels[i]} · ${s.name}: ${fmt(v, o.dec ?? 2)}${o.unit || ""}`);
+  }));
+  (o.ref || []).forEach(r => { el("line", {x1: x0, x2: x1, y1: y(r.value), y2: y(r.value), stroke: r.color || css("--muted"), "stroke-width": 1.6, "stroke-dasharray": "5 4"}, svg); if (r.label) { const t = el("text", {x: x1, y: y(r.value) - 5, "text-anchor": "end", "font-size": 11, fill: r.color || css("--muted")}, svg); t.textContent = r.label; } });
+  const step = Math.ceil(n / (o.maxTicks || 12));
+  o.labels.forEach((lab, i) => { if (i % step) return; const cx = x0 + i * band + band / 2; const t = el("text", {x: cx, y: y0 + 16, "text-anchor": o.rotate ? "end" : "middle", "font-size": 11, fill: css("--text-2"), transform: o.rotate ? `rotate(-35 ${cx} ${y0 + 16})` : ""}, svg); t.textContent = lab; });
+  if (o.yTitle) { const t = el("text", {x: 12, y: (y0 + y1) / 2, transform: `rotate(-90 12 ${(y0 + y1) / 2})`, "text-anchor": "middle", "font-size": 11, fill: css("--muted")}, svg); t.textContent = o.yTitle; }
+}
+function lines(target, o) {
+  const box = $(target); box.innerHTML = "";
+  const W = o.width || 560, H = o.height || 240, m = {l: 44, r: 12, t: 12, b: 30};
+  const svg = el("svg", {viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": o.aria || "line chart"}, box);
+  const xs = o.x, xmin = Math.min(...xs), xmax = Math.max(...xs);
+  const vals = o.series.flatMap(s => s.values.filter(v => v !== null)).concat((o.ref || []).map(r => r.value));
+  const ymax = o.ymax || niceMax(Math.max(...vals) * 1.05), ymin = o.ymin ?? 0;
+  const x0 = m.l, x1 = W - m.r, y0 = H - m.b, y1 = m.t;
+  const X = v => x0 + (v - xmin) / (xmax - xmin || 1) * (x1 - x0), Y = v => y0 - (v - ymin) / (ymax - ymin) * (y0 - y1);
+  for (let i = 0; i <= 4; i++) { const v = ymin + (ymax - ymin) * i / 4; el("line", {x1: x0, x2: x1, y1: Y(v), y2: Y(v), stroke: css("--line")}, svg); const t = el("text", {x: x0 - 6, y: Y(v) + 4, "text-anchor": "end", "font-size": 11, fill: css("--muted")}, svg); t.textContent = +v.toFixed(2); }
+  (o.ref || []).forEach(r => { el("line", {x1: x0, x2: x1, y1: Y(r.value), y2: Y(r.value), stroke: r.color, "stroke-width": 1.4, "stroke-dasharray": "5 4"}, svg); if (r.label) { const t = el("text", {x: x1, y: Y(r.value) - 5, "text-anchor": "end", "font-size": 11, fill: r.color}, svg); t.textContent = r.label; } });
+  o.series.forEach(s => {
+    let d = ""; s.values.forEach((v, i) => { if (v === null) return; d += (d ? "L" : "M") + X(xs[i]).toFixed(1) + "," + Y(Math.min(v, ymax)).toFixed(1); });
+    el("path", {d, fill: "none", stroke: s.color, "stroke-width": s.width || 2, "stroke-linejoin": "round"}, svg);
+    if (s.dots) s.values.forEach((v, i) => { if (v === null) return; const c = el("circle", {cx: X(xs[i]), cy: Y(v), r: 4.5, fill: s.color, stroke: css("--surface"), "stroke-width": 2}, svg); tip(c, `${s.name}: ${fmt(v)} at ${xs[i]}`); });
+  });
+  const ticks = o.xticks || [xmin, (xmin + xmax) / 2, xmax];
+  ticks.forEach(v => { const t = el("text", {x: X(v), y: y0 + 16, "text-anchor": "middle", "font-size": 11, fill: css("--text-2")}, svg); t.textContent = o.xfmt ? o.xfmt(v) : v; });
+  if (o.xTitle) { const t = el("text", {x: (x0 + x1) / 2, y: H - 2, "text-anchor": "middle", "font-size": 11, fill: css("--muted")}, svg); t.textContent = o.xTitle; }
+  if (o.yTitle) { const t = el("text", {x: 12, y: (y0 + y1) / 2, transform: `rotate(-90 12 ${(y0 + y1) / 2})`, "text-anchor": "middle", "font-size": 11, fill: css("--muted")}, svg); t.textContent = o.yTitle; }
+  const hit = el("rect", {x: x0, y: y1, width: x1 - x0, height: y0 - y1, fill: "transparent"}, svg);
+  hit.addEventListener("mousemove", e => { const r = svg.getBoundingClientRect(); const fx = (e.clientX - r.left) / r.width * W; let i = 0, best = 1e9; xs.forEach((v, j) => { const dd = Math.abs(X(v) - fx); if (dd < best) { best = dd; i = j; } }); tt.textContent = `${o.xfmt ? o.xfmt(xs[i]) : xs[i]} · ` + o.series.map(s => `${s.name}: ${fmt(s.values[i])}`).join(" · "); tt.style.opacity = 1; tt.style.left = (e.clientX + 12) + "px"; tt.style.top = (e.clientY - 28) + "px"; });
+  hit.addEventListener("mouseleave", () => tt.style.opacity = 0);
+}
+function table(id, head, rows, numCols = []) {
+  const t = $(id); t.innerHTML = "<thead><tr>" + head.map((h, i) => `<th class="${numCols.includes(i) ? "num" : ""}">${h}</th>`).join("") + "</tr></thead><tbody>" +
+    rows.map(r => "<tr>" + r.map((c, i) => `<td class="${numCols.includes(i) ? "num" : ""}">${c}</td>`).join("") + "</tr>").join("") + "</tbody>";
+}
+
+// ------------------------------------------------------------------ hero + links
+$("lnkReport").href = $("lnkReport2").href = D.links.report; $("lnkApp").href = $("lnkApp2").href = D.links.app; $("lnkRepo").href = D.links.repo;
+const e3 = D.policies, nash = e3.nash, opt = e3.opt;
+const row = (reg, pol) => e3.table.find(r => r.regime.startsWith(reg) && r.policy.startsWith(pol));
+$("sHours").textContent = Math.round(S.e2.person_hours_lost_per_day_all_messes);
+$("sHerd").textContent = fmt(row("reactive", "pi1").mean_cost, 1) + " min";
+$("sNash").textContent = fmt(nash, 2) + " min";
+$("sReward").textContent = fmt(nash / opt, 1) + "×";
+
+// ------------------------------------------------------------------ domains
+$("domTable").querySelector("tbody").innerHTML = S.e2.domains.map(d => `<tr><td>${d.domain}</td><td>${d.players}</td><td class="num">${fmt(d.nash_cost)}</td><td class="num">${fmt(d.opt_cost)}</td><td class="num"><b>${fmt(d.poa, 1)}×</b></td></tr>`).join("");
+
+// ------------------------------------------------------------------ Pigou
+function pigou(p) { return 1 / (1 - p * Math.pow(p + 1, -(p + 1) / p)); }
+function drawPigou() {
+  const p = +$("pSl").value; $("pVal").textContent = p; $("pPoa").textContent = fmt(pigou(p)); $("pShare").textContent = Math.round(100 * Math.pow(p + 1, -1 / p)) + "%";
+  const xs = Array.from({length: 45}, (_, i) => 1 + i * 0.25);
+  lines("pigouChart", {x: xs, series: [{name: "PoA", values: xs.map(pigou), color: css("--ne")}, {name: "you", values: xs.map(v => Math.abs(v - p) < 0.13 ? pigou(v) : null), color: css("--ne"), dots: true}], ymin: 1, ymax: 4, width: 330, height: 200, xTitle: "steepness p", xticks: [1, 4, 8, 12]});
+}
+$("pSl").oninput = drawPigou;
+
+// ------------------------------------------------------------------ dinner game (exact formulas, same as theory.py)
+function drawDinner() {
+  const Lc = +$("lSl").value; $("lVal").textContent = Lc.toFixed(1);
+  const dom = Lc > 2;  // then Late is strictly dominated by Peak (Peak never costs more than 2)
+  const counter = dom ? 4 : 2 + Lc, mixed = dom ? 4 : 2 * Lc, ce = dom ? 4 : 1 + Lc, optimum = Math.min(4, 1 + Lc, 2 * Lc);
+  $("dinnerMatrix").innerHTML = `<tr><th></th><th>Peak</th><th>Late</th></tr><tr><th>Peak</th><td>(2, 2)</td><td>(1, ${Lc.toFixed(1)})</td></tr><tr><th>Late</th><td>(${Lc.toFixed(1)}, 1)</td><td>(${Lc.toFixed(1)}, ${Lc.toFixed(1)})</td></tr>`;
+  bars("dinnerChart", {labels: ["counter", "no info", "CE coin"], series: [{name: "total cost", values: [counter, mixed, ce], color: i => [css("--ne"), css("--gold"), css("--ce")][i]}], ref: [{value: optimum, label: "optimum", color: css("--opt")}], width: 330, height: 220, ymax: 6, maxTicks: 3});
+  $("dinnerNote").innerHTML = dom ? `<b>L &gt; 2: Late is strictly dominated</b> by Peak, so iterated elimination leaves only (Peak, Peak). Everyone rushes (the Pigou outcome) and no advice can change it.` :
+    `A shared counter makes both students jump together. No information: each goes Peak with probability ${(Lc - 1).toFixed(1)}. A fair private coin ("you Peak, you Late") is a correlated equilibrium and reaches the optimum.`;
+}
+$("lSl").oninput = drawDinner;
+function drawLight() {
+  bars("lightChart", {labels: ["Stop", "Go alone", "Crash"], series: [{name: "best CE", values: [0.5, 0.5, 0], color: css("--ce")}, {name: "mixed Nash", values: [4 / 9, 4 / 9, 1 / 9], color: css("--ne")}], width: 330, height: 200, ymax: 0.6, dec: 2, aria: "probability of each outcome"});
+  $("lightChart").insertAdjacentHTML("afterbegin", `<div class="legend"><span><i style="background:${css("--ce")}"></i>best correlated equilibrium</span><span><i style="background:${css("--ne")}"></i>mixed Nash</span></div>`);
+}
+
+// ------------------------------------------------------------------ mess
+let night = "normal";
+function drawMess() {
+  const m = D.mess[night];
+  bars("messChart", {labels: L, series: [{name: "selfish", values: m.nash, color: css("--ne")}, {name: "planner", values: m.opt, color: css("--opt")}], ref: [{value: m.capacity, label: "capacity", color: css("--muted")}], yTitle: "students", dec: 0, maxTicks: 6});
+  lines("waitChart", {x: L.map((_, i) => i), series: [{name: "selfish", values: m.wait_nash, color: css("--ne"), dots: true}, {name: "planner", values: m.wait_opt, color: css("--opt"), dots: true}], xfmt: v => L[Math.round(v)], xticks: [0, 3, 6, 9, 11], yTitle: "minutes"});
+  $("mNash").textContent = fmt(m.nash_cost) + " min"; $("mOpt").textContent = fmt(m.opt_cost) + " min"; $("mPoa").textContent = fmt(m.poa, 1) + "×";
+}
+document.querySelectorAll("[data-night]").forEach(b => b.onclick = () => { night = b.dataset.night; document.querySelectorAll("[data-night]").forEach(x => x.setAttribute("aria-pressed", x === b)); drawMess(); });
+
+// ------------------------------------------------------------------ playback
+const POL = [["pi0 No information", "No information"], ["pi1 Exact live", "Live counter (everyone)"], ["pi5 Partial (30% see Exact live)", "Live counter (30% see it)"], ["pi7 CE recommendation", "CE recommendation"], ["pi8 Optimum as advice + obedience reward", "CE + obedience reward"]];
+const NOTES = {"pi0 No information": "Students only remember their own past waits.", "pi1 Exact live": "Everyone sees yesterday's exact crowd and reacts: the rush jumps from slot to slot (El Farol).", "pi5 Partial (30% see Exact live)": "Only 30% see the counter: too few to move the rush together.", "pi7 CE recommendation": "Private, shuffled slots from a Nash schedule: nobody wants to disobey, nothing moves.", "pi8 Optimum as advice + obedience reward": "The planner's schedule, made self-enforcing by a small reward: the queue disappears."};
+let pol = "pi1 Exact live", day = 0, timer = null;
+$("polBtns").innerHTML = POL.map(([k, n]) => `<button class="btn small" data-pol="${k}" aria-pressed="${k === pol}">${n}</button>`).join("");
+document.querySelectorAll("[data-pol]").forEach(b => b.onclick = () => { pol = b.dataset.pol; document.querySelectorAll("[data-pol]").forEach(x => x.setAttribute("aria-pressed", x === b)); drawPlay(true); });
+function drawPlay(full) {
+  const P = D.playback[pol], cap = D.mess.normal.capacity;
+  $("dayVal").textContent = day + 1; $("daySl").value = day;
+  bars("playChart", {labels: L, series: [{name: "arrivals", values: P.loads[day], color: v => P.loads[day][v] > cap ? css("--ne") : css("--ce")}], ref: [{value: cap, label: "capacity", color: css("--muted")}], ymax: 400, dec: 0, maxTicks: 6, yTitle: "students"});
+  $("polNote").textContent = NOTES[pol];
+  const xs = P.cost.map((_, i) => i + 1);
+  lines("costChart", {x: xs, series: [{name: "this policy", values: P.cost.map((v, i) => i <= day ? v : null), color: css("--ce")}], ref: [{value: nash, label: "Nash", color: css("--ne")}, {value: opt, label: "planner", color: css("--opt")}], ymax: 20, xTitle: "day", xticks: [1, 40, 80, 120], yTitle: "minutes"});
+  $("pCost").textContent = fmt(P.mean_cost) + " min"; $("pSwing").textContent = Math.round(100 * P.swing) + "%";
+}
+$("daySl").oninput = e => { day = +e.target.value; drawPlay(); };
+$("playBtn").onclick = () => {
+  if (timer) { clearInterval(timer); timer = null; $("playBtn").textContent = "▶ Play"; return; }
+  if (day >= 119) day = 0;
+  $("playBtn").textContent = "❚❚ Pause";
+  timer = setInterval(() => { day++; if (day >= 119) { clearInterval(timer); timer = null; $("playBtn").textContent = "▶ Play"; } drawPlay(); }, 140);
+};
+function drawPolTable() {
+  const regs = [["calm", "Calm"], ["reactive", "Reactive"], ["noisy", "Noisy"]];
+  const pols = [...new Set(e3.table.map(r => r.policy))];
+  table("polTable", ["Policy", ...regs.map(r => r[1]), "Worst case"], pols.map(p => {
+    const vals = regs.map(([k]) => row(k, p).mean_cost);
+    const w = Math.max(...vals);
+    return [p.replace(/^pi(\d)/, "π$1"), ...vals.map(v => fmt(v)), `<b>${fmt(w)}</b>`];
+  }), [1, 2, 3, 4]);
+}
+
+// ------------------------------------------------------------------ phone
+const PH = [["nash", "Nash schedule (a CE)"], ["opt", "Optimum, no reward"], ["reward", "Optimum + reward"]];
+let ph = "nash";
+$("phoneBtns").innerHTML = PH.map(([k, n]) => `<button class="btn small" data-ph="${k}" aria-pressed="${k === ph}">${n}</button>`).join("");
+document.querySelectorAll("[data-ph]").forEach(b => b.onclick = () => { ph = b.dataset.ph; document.querySelectorAll("[data-ph]").forEach(x => x.setAttribute("aria-pressed", x === b)); drawPhone(); });
+function drawPhone() {
+  const p = D.phones[ph], best = Math.min(...p.costs), obey = p.costs[p.rec] <= best + 0.01;
+  $("phSlot").textContent = L[p.rec];
+  $("phPref").textContent = `you like ${L[p.tau]} · flexibility ${p.beta} min/slot`;
+  $("phReward").innerHTML = ph === "reward" ? `🎟️ Come at ${L[p.rec]} and get <b>${fmt(D.phones.opt.costs[p.rec] - p.costs[p.rec])} min</b> of priority` : "";
+  $("phVerdict").innerHTML = obey ? `<span style="color:var(--opt)">✓ Following the app is your best choice</span>` : `<span style="color:var(--ne)">✗ You would rather go at ${L[p.costs.indexOf(best)]}</span>`;
+  bars("phoneChart", {labels: L, series: [{name: "your cost", values: p.costs, color: i => i === p.rec ? css("--ce") : css("--line")}], unit: " min", yTitle: "minutes", maxTicks: 6});
+}
+
+// ------------------------------------------------------------------ CE numbers, compliance, Shapley, fairness
+function drawCE() {
+  const e6 = S.e6;
+  $("ceLP").textContent = `best CE ${fmt(e6.best_ce_cost)} = Nash ${fmt(e6.nash_cost)} min`;
+  $("ceReward").textContent = `${Math.round(100 * e6.share_rewarded)}% of students get about ${fmt(e6.reward_per_rewarded_person, 1)} min of priority`;
+  $("ceFrom").textContent = fmt(e6.nash_cost) + " min"; $("ceTo").textContent = fmt(e6.opt_cost) + " min";
+  const comp = e6.compliance, xs = [...new Set(comp.map(r => r.compliance))];
+  const get = k => xs.map(x => comp.find(r => r.regime.startsWith(k) && r.compliance === x).mean_cost);
+  lines("compChart", {x: xs, series: [{name: "reactive", values: get("reactive"), color: css("--gold"), dots: true}, {name: "calm", values: get("calm"), color: css("--ce"), dots: true}], ref: [{value: e6.nash_cost, label: "Nash", color: css("--ne")}], ymax: 12, xTitle: "share of students using the app", xticks: [0, 0.5, 1], xfmt: v => Math.round(v * 100) + "%", yTitle: "minutes"});
+  const sh = S.e13.normal;
+  bars("shapChart", {labels: sh.groups, series: [{name: "caused", values: sh.shapley_per_member, color: css("--ne")}, {name: "suffered", values: sh.own_wait_per_member, color: css("--ce")}], unit: " min", yTitle: "minutes", maxTicks: 6});
+  $("shapNote").textContent = `Each group's Shapley value = its average extra queue over all arrival orders. Early-rush students cause more than they suffer; later ones suffer more. The core of this cost game is empty (LP): no split of the waiting satisfies every coalition.`;
+  const f = S.e14, cols = Object.keys(f.table[0]).filter(k => k !== "group");
+  table("fairTable", ["Group", ...cols], f.table.map(r => [r.group, ...cols.map(c => fmt(r[c]))]), [1, 2, 3, 4]);
+  const wo = f.worse_off, ml = f.max_loss_sec, ks = Object.keys(wo);
+  $("fairNote").textContent = `Without a reward the flexible students carry the inconvenience. With the reward nobody is worse off than under selfish play; with the Shapley fee the scheme pays for itself and no student loses more than ${fmt(ml[ks[2]], 1)} s.`;
+}
+
+// ------------------------------------------------------------------ MDP, learning, Bayes, alpha-beta, course
+function drawMore() {
+  const e12 = S.e12, tr = e12.traces, keys = Object.keys(tr), n = tr[keys[0]].length;
+  lines("mdpChart", {x: Array.from({length: n}, (_, i) => i), series: [{name: "no display", values: tr[keys[0]], color: css("--muted")}, {name: "fresh", values: tr[keys[1]], color: css("--ce")}, {name: "5-min-old", values: tr[keys[2]], color: css("--ne")}], xTitle: "minutes after 19:30", xticks: [0, 30, 60, 90, 120], yTitle: "people in queue", height: 220});
+  const t = e12.table, at = (d, s) => t.find(r => r.display_delay_min === d && r.share_using === s).all;
+  $("mdpKpis").innerHTML = `<div><b>${fmt(at(0, 0))}</b>no display</div><div><b>${fmt(at(0, 1))}</b>everyone, fresh counter</div><div><b>${fmt(at(10, 1))}</b>everyone, 10-min-old counter</div>`;
+  table("learnTable", ["Learner", "Feedback", "Cost", "Swap regret"], S.e11.table.map(r => [r.learner, r.feedback.startsWith("bandit") ? "own wait" : "all slots", fmt(r.mean_cost), fmt(r.swap_regret)]), [2, 3]);
+  const e8 = S.e8;
+  $("bayesText").innerHTML = `Students don't know if tonight is slow (prob. 0.3). Without an announcement they play a Bayesian Nash equilibrium (${fmt(e8.bne)} min); announcing the night gives ${fmt(e8.informed_ne)} min. But on <b>normal</b> nights the announcement makes things worse (${fmt(e8.per_state.bne["normal night"])} → ${fmt(e8.per_state.informed_ne["normal night"])}): the fear of a slow night was keeping people spread out.`;
+  const ab = S.e15["all policies"], ai = S.e15["information only (no rewards)"];
+  $("abText").innerHTML = `The mess office doesn't know how students behave, so it picks the policy with the best <b>worst case</b>: a minimax tree (office = MIN, behaviour = MAX). Alpha-beta pruning reaches the same answer as full minimax with <b>${ab.leaves_evaluated} of ${ab.leaves_total}</b> simulations: <b>CE + reward</b> (${fmt(ab.worst_case_cost)} min). Without rewards: <b>${ai.choice.replace(/^pi\d /, "")}</b> (${fmt(ai.worst_case_cost)} min), close to the CE's ${fmt(row("reactive", "pi7").mean_cost)}.`;
+  const C = [
+    ["Intelligent agents", "Students and the mess office as agents: what they sense (display), do (pick a slot) and want (short wait).", "problem"],
+    ["Normal form & dominance", "Iterated elimination: if Late costs more than any peak, Late is dominated and everyone rushes.", "games"],
+    ["Pure & mixed Nash equilibrium", "Best-response dynamics for 678 students; mixed equilibrium of the dinner game (3.0 vs optimum 2.5).", "mess"],
+    ["Extensive form, backward induction, SGPE", "A counter that shows earlier arrivals makes the game sequential: SGPE (Peak, Late); non-credible threats removed.", "more"],
+    ["Alpha-beta pruning", "Robust (minimax) choice of display policy; pruning skips simulations that cannot change the decision.", "more"],
+    ["Correlated equilibrium", "LP for small games; shuffled Nash recommendations; best-CE LP at scale; obedience reward.", "ce"],
+    ["Core & Shapley value", "Who causes the queue (Shapley); the waiting game has an empty core; Shapley fees fund the rewards.", "ce"],
+    ["Markov decision processes", "Go now or wait, solved by value iteration; what happens when everyone uses the same policy.", "more"],
+    ["Multi-armed bandits", "ε-greedy, UCB1, EXP3 students learning from their own waits.", "more"],
+    ["RL: Monte Carlo & temporal difference", "Sample-average vs constant-step (TD) estimates of each slot's cost in a crowd that keeps changing.", "more"],
+    ["Fairness", "Group parity (flexible vs rigid, peak vs off-peak) and a Pareto check against selfish play.", "ce"],
+  ];
+  $("courseTable").innerHTML = C.map(r => `<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td><a href="#${r[2]}">see ↑</a></td></tr>`).join("");
+}
+
+// ------------------------------------------------------------------ theme + draw
+function drawAll() { drawPigou(); drawDinner(); drawLight(); drawMess(); drawPlay(true); drawPolTable(); drawPhone(); drawCE(); drawMore(); }
+$("themeBtn").onclick = e => { e.preventDefault(); const r = document.documentElement; const dark = r.dataset.theme ? r.dataset.theme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; r.dataset.theme = dark ? "light" : "dark"; drawAll(); };
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawAll);
+drawAll();
+</script>
+</body>
+</html>
