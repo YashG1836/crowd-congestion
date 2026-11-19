@@ -408,6 +408,60 @@ def wardrop_gap(game: SlotGame, x: np.ndarray) -> float:
     return float((x * (C - C.min(axis=1, keepdims=True))).sum() / max(game.n, 1))
 
 
+def _project_rows(v: np.ndarray, z: np.ndarray) -> np.ndarray:
+    """Project every row of v onto {x >= 0, sum(x) = z_k}: the set of ways to split a type over slots."""
+    K, T = v.shape
+    u = -np.sort(-v, axis=1)
+    css = np.cumsum(u, axis=1) - z[:, None]
+    cond = u - css / np.arange(1, T + 1)[None, :] > 0
+    rho = T - 1 - np.argmax(cond[:, ::-1], axis=1)
+    theta = css[np.arange(K), rho] / (rho + 1)
+    return np.maximum(v - theta[:, None], 0.0)
+
+
+def large_crowd_gap(game: SlotGame, x: np.ndarray) -> float:
+    """Largest extra cost (minutes) any used slot has over the cheapest slot of its type (0 = exact equilibrium)."""
+    C = game.costs(x)
+    return float(((C - C.min(axis=1, keepdims=True)) * (np.asarray(x) > 1e-9)).max())
+
+
+def large_crowd_equilibrium(game: SlotGame, tol: float = 2e-4, x0: np.ndarray | None = None,
+                            iters: int = 6000) -> tuple[np.ndarray, float]:
+    """Exact equilibrium when every person is negligible (Wardrop), by projected extragradient.
+
+    Start from fictitious play, then repeat  y = P(x - s C(x)),  x = P(x - s C(y))  where P is the
+    projection onto feasible splits. Several step sizes are tried; the most exact result is kept.
+    ``x0`` warm-starts the search (e.g. from the equilibrium of a nearby belief).
+    Returns (fractional schedule, gap in minutes).
+    """
+    models, _ = _fluid_models(game.congestion)
+    mu = min(m.service_rate for m in models) if models else 1.0
+    z = game.counts.astype(float)
+    x = wardrop_equilibrium(game, 2000) if x0 is None else _project_rows(np.asarray(x0, dtype=float), z)
+    best_x, best_gap = x, large_crowd_gap(game, x)
+    if x0 is not None and best_gap >= tol:  # a poor warm start: also try a fresh one
+        fresh = wardrop_equilibrium(game, 2000)
+        if large_crowd_gap(game, fresh) < best_gap:
+            best_x, best_gap = fresh, large_crowd_gap(game, fresh)
+    for factor in (0.1, 0.03, 0.01, 0.003, 0.001):
+        if best_gap < tol:
+            break
+        s = factor * mu
+        x = best_x.copy()
+        for it in range(1, iters + 1):
+            y = _project_rows(x - s * game.costs(x), z)
+            x = _project_rows(x - s * game.costs(y), z)
+            if it % 200 == 0:
+                gp = large_crowd_gap(game, x)
+                if gp < best_gap:
+                    best_x, best_gap = x.copy(), gp
+                if best_gap < tol:
+                    break
+        if best_gap < tol:
+            break
+    return best_x, best_gap
+
+
 def nash_from_several_starts(game: SlotGame, seed: int = 0, n_random: int = 2,
                              extra_starts: list[np.ndarray] | None = None) -> list[Solution]:
     """Run best-response dynamics from different starting points (to find several NE)."""
@@ -423,53 +477,77 @@ def nash_from_several_starts(game: SlotGame, seed: int = 0, n_random: int = 2,
 
 
 # ---------------------------------------------------------------- Optimum
+def _fluid_models(cm: CongestionModel) -> tuple[list[FluidQueue], list[float]] | tuple[None, None]:
+    """The fluid queue(s) behind a congestion model, with their weights (one, or an Expected mixture)."""
+    if isinstance(cm, FluidQueue):
+        return [cm], [1.0]
+    if isinstance(cm, Expected) and all(isinstance(m, FluidQueue) for m in cm.models):
+        return list(cm.models), [float(w) for w in cm.probs]
+    return None, None
+
+
 def _lp_relaxation(game: SlotGame) -> np.ndarray | None:
     """Continuous optimum for the fluid queue (scarcity ignored), on a 1-minute grid.
 
-    Variables x[k,t] >= 0 and q[m] >= 0 (queue at the end of minute m).
-    q[m] >= q[m-1] + a[m] - mu,  a[m] = A[slot(m)] / slot_minutes.
-    Minimise sum_m (q[m-1] + q[m]) / 2   (person-minutes waited, Little's law)
+    Variables x[k,t] >= 0 and, for every possible state w of the counter, q_w[m] >= 0
+    (queue at the end of minute m). Arrivals are shared by all states:
+    q_w[m] >= q_w[m-1] + a[m] - mu_w,  a[m] = A[slot(m)] / slot_minutes.
+    Minimise sum_w P(w) sum_m (q_w[m-1] + q_w[m]) / 2   (expected person-minutes waited)
              + sum x[k,t] * beta_k |t - tau_k|.
+    With a single state this is the plain fluid-queue optimum.
     """
-    cm = game.congestion
-    if not isinstance(cm, FluidQueue):
+    models, weights = _fluid_models(game.congestion)
+    if models is None:
         return None
     K, T = game.K, game.T
-    dt, mu = cm.slot_minutes, cm.service_rate
+    dt = models[0].slot_minutes
     steps = int(round(dt))
-    if not np.isclose(steps, dt) or steps < 1:
+    if not np.isclose(steps, dt) or steps < 1 or any(m.slot_minutes != dt for m in models):
         return None
     window = T * steps
-    M = window + int(np.ceil(game.n / mu)) + 2
     nx = K * T
-    # objective
-    c_x = game.schedule_cost.ravel()
-    c_q = np.ones(M)
-    c_q[-1] = 0.5  # trapezoid weights: q[1..M-1] count fully, q[M] half (q[0] = 0)
-    c = np.r_[c_x, c_q]
-    # Lindley constraints: -q[m] + q[m-1] + a[m] <= mu
-    rows, cols, vals = [], [], []
-    for m in range(M):
-        rows.append(m), cols.append(nx + m), vals.append(-1.0)
-        if m > 0:
-            rows.append(m), cols.append(nx + m - 1), vals.append(1.0)
-        if m < window:
-            t = m // steps
-            for k in range(K):
-                rows.append(m), cols.append(k * T + t), vals.append(1.0 / dt)
-    A_ub = sparse.csr_matrix((vals, (rows, cols)), shape=(M, nx + M))
-    b_ub = np.full(M, mu)
+    c_parts = [game.schedule_cost.ravel()]
+    rows, cols, vals, b_ub = [], [], [], []
+    col0, row0 = nx, 0
+    for m_, w_ in zip(models, weights):
+        mu = m_.service_rate
+        M = window + int(np.ceil(game.n / mu)) + 2
+        c_q = np.full(M, w_)
+        c_q[-1] = 0.5 * w_  # trapezoid weights: q[1..M-1] count fully, q[M] half (q[0] = 0)
+        c_parts.append(c_q)
+        # Lindley constraints: -q[m] + q[m-1] + a[m] <= mu
+        for m in range(M):
+            rows.append(row0 + m), cols.append(col0 + m), vals.append(-1.0)
+            if m > 0:
+                rows.append(row0 + m), cols.append(col0 + m - 1), vals.append(1.0)
+            if m < window:
+                t = m // steps
+                for k in range(K):
+                    rows.append(row0 + m), cols.append(k * T + t), vals.append(1.0 / dt)
+        b_ub += [mu] * M
+        col0 += M
+        row0 += M
+    nv = col0
+    A_ub = sparse.csr_matrix((vals, (rows, cols)), shape=(row0, nv))
     # each type assigned exactly once
     rows, cols = [], []
     for k in range(K):
         for t in range(T):
             rows.append(k), cols.append(k * T + t)
-    A_eq = sparse.csr_matrix((np.ones(len(rows)), (rows, cols)), shape=(K, nx + M))
-    res = linprog(c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=game.counts.astype(float),
-                  bounds=[(0, None)] * (nx + M), method="highs")
+    A_eq = sparse.csr_matrix((np.ones(len(rows)), (rows, cols)), shape=(K, nv))
+    res = linprog(np.concatenate(c_parts), A_ub=A_ub, b_ub=np.array(b_ub), A_eq=A_eq,
+                  b_eq=game.counts.astype(float), bounds=[(0, None)] * nv, method="highs")
     if not res.success:
         return None
     return res.x[:nx].reshape(K, T)
+
+
+def continuous_optimum(game: SlotGame) -> np.ndarray:
+    """The planner's optimum when students are infinitely divisible (fractional schedule)."""
+    x = _lp_relaxation(game)
+    if x is None:
+        raise ValueError("continuous_optimum needs a fluid queue (or a mixture of fluid queues)")
+    return x
 
 
 def round_schedule(game: SlotGame, Xf: np.ndarray) -> np.ndarray:

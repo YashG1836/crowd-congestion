@@ -89,6 +89,7 @@ class Domain:
     beta_levels: tuple[float, float, float] = (1.5, 3.0, 6.0)
     beta_probs: tuple[float, float, float] = (0.30, 0.45, 0.25)
     unit: str = "people"
+    bad_state: str = ""  # what goes wrong on a bad day (the operator knows, the crowd does not)
 
 
 @dataclass
@@ -118,29 +119,32 @@ DOMAINS: dict[str, Domain] = {
         story="Office starts at 9:00; everyone wants to cross around 8:30 and the bridge clears 15 cars a minute.",
         players="commuters", bottleneck="bridge", unit="cars",
         n=2400, start="06:30", T=12, slot_minutes=15, service_rate=15,
-        peaks=[Peak(0.75, 120, 20), Peak(0.25, 75, 25)], beta_levels=(3.0, 6.0, 12.0)),
+        peaks=[Peak(0.75, 120, 20), Peak(0.25, 75, 25)], beta_levels=(3.0, 6.0, 12.0),
+        bad_state="an accident closes one lane"),
     "network": Domain(
         key="network", title="Night-time backups on a shared link",
         story="Laptops are set to back up right after 22:00; the uplink moves 7 backups a minute.",
         players="backup jobs", bottleneck="uplink", unit="jobs",
         n=600, start="22:00", T=12, slot_minutes=10, service_rate=7,
-        peaks=[Peak(0.65, 10, 10), Peak(0.35, 50, 25)], beta_levels=(0.5, 1.0, 2.0)),
+        peaks=[Peak(0.65, 10, 10), Peak(0.35, 50, 25)], beta_levels=(0.5, 1.0, 2.0),
+        bad_state="the link runs degraded"),
     "restaurant": Domain(
         key="restaurant", title="Food-court lunch",
         story="Offices break at 13:00; six counters serve 6 diners a minute between them.",
         players="diners", bottleneck="counters", unit="diners",
         n=450, start="12:00", T=12, slot_minutes=10, service_rate=6,
-        peaks=[Peak(0.70, 65, 12), Peak(0.30, 30, 15)]),
+        peaks=[Peak(0.70, 65, 12), Peak(0.30, 30, 15)], bad_state="one counter is closed"),
     "gym": Domain(
         key="gym", title="Evening gym",
         story="Members come after work (about 18:30); machines free up for 1.5 members a minute.",
         players="members", bottleneck="machines", unit="members",
         n=240, start="17:00", T=12, slot_minutes=20, service_rate=1.5,
-        peaks=[Peak(0.60, 90, 25), Peak(0.40, 170, 30)], beta_levels=(2.0, 4.0, 8.0)),
+        peaks=[Peak(0.60, 90, 25), Peak(0.40, 170, 30)], beta_levels=(2.0, 4.0, 8.0),
+        bad_state="some machines are out of order"),
     "mess": Domain(
         key="mess", title="Hostel mess dinner (case study)",
         story="About 680 students eat dinner between 19:30 and 21:30; the counter serves 9 a minute.",
         players="students", bottleneck="serving counter", unit="students",
         n=680, start="19:30", T=12, slot_minutes=10, service_rate=9,
-        peaks=[Peak(0.70, 40, 15), Peak(0.30, 80, 20)]),
+        peaks=[Peak(0.70, 40, 15), Peak(0.30, 80, 20)], bad_state="the counter is short of staff"),
 }

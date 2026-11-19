@@ -1,4 +1,4 @@
-"""Layer 2 - correlated equilibrium for a population (the smart display) and the Bayesian (incomplete-information) analysis."""
+"""Layer 2 - correlated equilibrium for a population: recommendations, obedience, rewards, and information design."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,7 +6,8 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import linprog
 
-from .game import CongestionModel, Expected, SlotGame, benchmarks, round_schedule
+from .game import (Expected, FluidQueue, SlotGame, continuous_optimum, large_crowd_equilibrium, large_crowd_gap,
+                   round_schedule)
 
 
 # ============================================================================
@@ -176,198 +177,235 @@ def interpolated_schedules(game: SlotGame, X_from: np.ndarray, X_to: np.ndarray,
 
 
 # ============================================================================
-# Complete vs incomplete information: what is it worth to know tonight's state?
+# Who gains from coordination? A Pareto check.
 #
-# Some nights are different (a counter is closed, a special item is slow to
-# make, more people show up). Students do not know the state w in advance; they
-# only know the prior P(w). This is a Bayesian game with a common unknown state.
-#
-# * Incomplete information (no signal). A student's choice cannot depend on w,
-#   so a risk-neutral student minimises EXPECTED cost. The Bayesian Nash
-#   equilibrium (BNE) is therefore the Nash equilibrium of the game whose
-#   congestion cost is the average sum_w P(w) g_w(A).
-# * Complete information (the app announces w, or a mediator recommends a slot
-#   that depends on w -- a Bayes correlated equilibrium). Each night people
-#   play the Nash equilibrium of that night's game.
-#
-# Value of information = E[cost | play BNE] - E[cost | play NE of the true night].
-# It can be positive or negative: in congestion games extra information is not
-# automatically good (that is the point of the project).
-# ============================================================================
-
-@dataclass
-class BayesianReport:
-    state_names: list[str]
-    prior: np.ndarray
-    bne_cost: float  # expected social cost when nobody knows the state
-    informed_ne_cost: float  # expected social cost when the state is announced
-    uninformed_opt_cost: float  # best a planner could do without knowing the state
-    informed_opt_cost: float  # best a planner could do knowing the state
-    per_state: dict[str, dict[str, float]]
-    n: int
-
-    @property
-    def value_of_information(self) -> float:
-        """Minutes per person saved by announcing the state (negative = information hurts)."""
-        return (self.bne_cost - self.informed_ne_cost) / self.n
-
-
-def bayesian_analysis(game: SlotGame, states: dict[str, CongestionModel], prior: list[float]) -> BayesianReport:
-    names = list(states)
-    prior = np.asarray(prior, dtype=float)
-    models = [states[s] for s in names]
-    games = {s: game.with_congestion(states[s], name=f"{game.name} [{s}]") for s in names}
-    avg_game = game.with_congestion(Expected(models, prior), name=f"{game.name} [expected]")
-
-    avg = benchmarks(avg_game)
-    X_bne, X_uopt = avg.nash.X, avg.optimum.X
-    per_state, bne, inf_ne, uopt, iopt = {}, 0.0, 0.0, 0.0, 0.0
-    for p, s in zip(prior, names):
-        b = benchmarks(games[s])
-        row = {
-            "bne": games[s].social_cost(X_bne),
-            "informed_ne": b.nash.social_cost,
-            "uninformed_opt": games[s].social_cost(X_uopt),
-            "informed_opt": b.optimum.social_cost,
-        }
-        per_state[s] = {k: v / game.n for k, v in row.items()}
-        bne += p * row["bne"]
-        inf_ne += p * row["informed_ne"]
-        uopt += p * row["uninformed_opt"]
-        iopt += p * row["informed_opt"]
-    return BayesianReport(names, prior, bne, inf_ne, uopt, iopt, per_state, game.n)
-
-
-# ============================================================================
-# Who causes the queue? Shapley value and core (lectures: core, Shapley value).
-#
-# Cooperative cost game. Players are the arrival groups g (all people whose
-# preferred slot is g). The cost of a coalition S is the total waiting if
-# exactly the groups in S come and arrive at their preferred slots:
-#     c(S) = sum_t A_t(S) W_t(A(S)),   A_t(S) = n_t if t in S else 0.
-# * Shapley value: each group's average marginal contribution to waiting over
-#   all orders in which groups could arrive -- its fair share of responsibility
-#   for the queue (efficient: shares add up to c(N)).
-# * Core: cost shares x with sum x = c(N) and sum_{g in S} x_g <= c(S) for every
-#   coalition S (no group of groups pays more than it would on its own). A queue
-#   is a negative externality, so c is supermodular and the core is typically
-#   EMPTY: no split of the waiting is acceptable to every coalition. We check
-#   this with a linear program.
+# Compare every type's expected cost under the Nash schedule, the planner's
+# optimum, and the optimum plus the obedience reward of Proposition 3 (the
+# reward is subtracted: it is what the person receives for following advice).
 # ============================================================================
 @dataclass
-class CooperativeReport:
-    groups: list[str]  # slot label of each player (group)
-    sizes: np.ndarray  # members per group
-    shapley: np.ndarray  # Shapley cost share per group (minutes, whole group)
-    own_wait: np.ndarray  # waiting the group itself experiences when everyone comes (minutes, whole group)
-    total: float  # c(N)
-    core_empty: bool
-    least_core_eps: float  # smallest e such that x(S) <= c(S) + e for all S is feasible
-    supermodular: bool
-
-    @property
-    def shapley_per_member(self) -> np.ndarray:
-        return np.divide(self.shapley, self.sizes, out=np.zeros_like(self.shapley), where=self.sizes > 0)
-
-    @property
-    def own_wait_per_member(self) -> np.ndarray:
-        return np.divide(self.own_wait, self.sizes, out=np.zeros_like(self.own_wait), where=self.sizes > 0)
-
-
-def queue_cost_game(game: SlotGame) -> CooperativeReport:
-    """Exact Shapley value and core check for the waiting-cost game (one player per preferred slot)."""
-    from math import factorial
-
-    T = game.T
-    sizes = np.bincount(game.tau, weights=game.counts, minlength=T).astype(float)
-    players = [t for t in range(T) if sizes[t] > 0]
-    m = len(players)
-    masks = np.arange(1 << m)
-    member = ((masks[:, None] >> np.arange(m)[None, :]) & 1).astype(bool)  # (2^m, m)
-    loads = np.zeros((len(masks), T))
-    loads[:, players] = member * sizes[players][None, :]
-    cost = (loads * game.congestion.wait(loads)).sum(axis=1)  # c(S) for every coalition
-    full = (1 << m) - 1
-    shap = np.zeros(m)
-    for j in range(m):
-        without = masks[~member[:, j]]
-        s = member[without].sum(axis=1)
-        weight = np.array([factorial(k) * factorial(m - k - 1) for k in s]) / factorial(m)
-        shap[j] = (weight * (cost[without | (1 << j)] - cost[without])).sum()
-    # own experienced waiting when everyone comes
-    W = game.congestion.wait(loads[full])
-    own = sizes[players] * W[players]
-    # core LP (cost game): sum x = c(N), x(S) <= c(S) + e; minimise e (least core). Core empty iff e* > 0.
-    A_ub = np.c_[member[1:full].astype(float), -np.ones(full - 1)]
-    b_ub = cost[1:full]
-    res = linprog(np.r_[np.zeros(m), 1.0], A_ub=A_ub, b_ub=b_ub, A_eq=np.r_[np.ones(m), 0.0][None, :],
-                  b_eq=[cost[full]], bounds=[(None, None)] * (m + 1), method="highs")
-    eps = float(res.x[-1]) if res.success else float("nan")
-    # supermodularity on all pairs of coalitions would be 4^m checks; test the standard local condition:
-    # marginal cost of adding j never decreases when the coalition grows (checked for every S and j, k).
-    supermod = True
-    for j in range(m):
-        for k in range(m):
-            if j == k:
-                continue
-            base = masks[~member[:, j] & ~member[:, k]]
-            mj = cost[base | (1 << j)] - cost[base]
-            mjk = cost[base | (1 << j) | (1 << k)] - cost[base | (1 << k)]
-            if np.any(mjk < mj - 1e-9):
-                supermod = False
-                break
-        if not supermod:
-            break
-    return CooperativeReport([game.slot_labels[t] for t in players], sizes[players], shap, own,
-                             float(cost[full]), bool(eps > 1e-7), eps, supermod)
-
-
-# ============================================================================
-# A fair, self-funding coordination scheme (lectures: fairness; Shapley value).
-#
-# 1. Recommend the planner's optimum (shuffled within each type).
-# 2. Pay each person the obedience reward of Proposition 3, so following the
-#    advice is a best response (a correlated equilibrium of the rewarded game).
-# 3. Fund the rewards with a fee proportional to the queue each arrival group
-#    causes -- its Shapley share of the waiting-cost game -- so the scheme is
-#    budget balanced and "those who cause the queue pay for removing it".
-# We compare group outcomes (group fairness: parity between flexible and rigid
-# students, between peak-lovers and others) and count who ends up worse off
-# than under selfish play (a Pareto check).
-# ============================================================================
-@dataclass
-class FairScheme:
+class WhoGains:
     nash: np.ndarray  # (K,) expected cost per person of each type at the Nash schedule
     optimum: np.ndarray  # (K,) at the optimum, no reward
-    with_reward: np.ndarray  # (K,) optimum minus the obedience reward received
-    with_fee: np.ndarray  # (K,) ... plus the Shapley-proportional fee paid
-    budget: float  # total reward per meal (minutes-equivalent)
-    fee: np.ndarray  # (K,) fee per person of each type
+    with_reward: np.ndarray  # (K,) at the optimum, minus the obedience reward received
+    budget: float  # total reward per visit (minutes-equivalent)
     counts: np.ndarray
 
     def worse_off(self, which: str, tol: float = 1e-9) -> int:
-        """Number of people whose cost under `which` exceeds their Nash cost."""
+        """Number of people whose cost under `which` is higher than under Nash."""
         return int(((getattr(self, which) > self.nash + tol) * self.counts).sum())
 
     def max_loss(self, which: str) -> float:
-        return float((getattr(self, which) - self.nash).max())
+        return float(max((getattr(self, which) - self.nash).max(), 0.0))
 
     def group_mean(self, which: str, mask: np.ndarray) -> float:
         v, w = getattr(self, which), self.counts
         return float((v[mask] * w[mask]).sum() / w[mask].sum())
 
 
-def fair_scheme(game: SlotGame, X_nash: np.ndarray, X_opt: np.ndarray) -> FairScheme:
+def who_gains(game: SlotGame, X_nash: np.ndarray, X_opt: np.ndarray) -> WhoGains:
     def per_type(X):
         X = np.asarray(X)
         return (X * game.costs(X)).sum(axis=1) / game.counts
 
-    ne, opt = per_type(X_nash), per_type(X_opt)
     gains = obedience(game, X_opt).gain_by_cell
     reward = (np.asarray(X_opt) * gains).sum(axis=1) / game.counts
-    budget = float((np.asarray(X_opt) * gains).sum())
-    coop = queue_cost_game(game)
-    share = {g: s / coop.shapley.sum() for g, s in zip(coop.groups, coop.shapley)}
-    size = dict(zip(coop.groups, coop.sizes))
-    fee = np.array([budget * share[game.slot_labels[t]] / size[game.slot_labels[t]] for t in game.tau])
-    return FairScheme(ne, opt, opt - reward, opt - reward + fee, budget, fee, game.counts)
+    return WhoGains(per_type(X_nash), per_type(X_opt), per_type(X_opt) - reward,
+                    float((np.asarray(X_opt) * gains).sum()), game.counts)
+
+
+# ============================================================================
+# Correlated equilibrium in a LARGE crowd (every person negligible).
+#
+# Here a person who switches slot does not change the loads, so the obedience
+# condition for a type-k person told slot t is simply
+#     sum over (state w, schedule j):  p(w, j) * x_j[k, t] * ( C_wj[k, t] - C_wj[k, t'] )  <=  0
+# for every alternative t'. Equilibria are exact (Wardrop, gap below a second),
+# so no tolerance is needed to make Nash feasible -- the comparison is clean.
+# ============================================================================
+def large_crowd_ce(states: dict[str, SlotGame], prior: dict[str, float], menu: list[np.ndarray],
+                   tol: float = 0.001) -> tuple[float, np.ndarray]:
+    """Lowest expected cost of a (Bayes) correlated equilibrium supported on ``menu``.
+
+    states: the game in each state of the world; prior: their probabilities. The mediator
+    knows the state and draws a schedule from p(w, .), then privately tells each person a slot.
+    With a single state this is the ordinary correlated equilibrium. tol (minutes) absorbs
+    numerical error. Returns (expected social cost, p as an array [state, schedule]).
+    """
+    names = list(states)
+    T = states[names[0]].T
+    off = ~np.eye(T, dtype=bool)
+    cols, costs = [], []
+    for w in names:
+        for x in menu:
+            C = states[w].costs(x)
+            gain = np.asarray(x)[:, :, None] * (C[:, :, None] - C[:, None, :] - tol)
+            cols.append(gain[:, off].ravel())
+            costs.append(states[w].social_cost(x))
+    A_ub = np.stack(cols, axis=1)
+    J = len(menu)
+    A_eq = np.zeros((len(names), len(names) * J))
+    for i in range(len(names)):
+        A_eq[i, i * J:(i + 1) * J] = 1.0
+    res = linprog(np.array(costs), A_ub=A_ub, b_ub=np.zeros(A_ub.shape[0]), A_eq=A_eq,
+                  b_eq=[prior[w] for w in names], bounds=[(0, None)] * (len(names) * J), method="highs")
+    if not res.success:
+        raise RuntimeError(f"large-crowd CE LP failed: {res.message}")
+    return float(res.fun), res.x.reshape(len(names), J)
+
+
+def _segment(a: np.ndarray, b: np.ndarray, steps: int) -> list[np.ndarray]:
+    return [(1 - s) * a + s * b for s in np.linspace(0, 1, steps + 1)[1:-1]]
+
+
+@dataclass
+class LargeCrowdCE:
+    nash: float  # cost per person of the (Wardrop) equilibrium
+    best_ce: float  # cost per person of the best correlated equilibrium found
+    optimum: float  # planner's optimum per person
+    gap_sec: float  # accuracy of the equilibrium (seconds)
+
+
+def large_crowd_check(game: SlotGame, steps: int = 20, tol: float = 0.001) -> LargeCrowdCE:
+    """Proposition 2 in numbers: with complete information the best CE costs what Nash costs.
+
+    The menu holds the equilibrium, the optimum and ``steps`` schedules in between.
+    """
+    x_ne, gap = large_crowd_equilibrium(game)
+    x_opt = continuous_optimum(game)
+    menu = [x_ne, x_opt] + _segment(x_ne, x_opt, steps)
+    cost, _ = large_crowd_ce({"only": game}, {"only": 1.0}, menu, tol)
+    n = game.n
+    return LargeCrowdCE(game.social_cost(x_ne) / n, cost / n, game.social_cost(x_opt) / n, 60 * gap)
+
+
+# ============================================================================
+# Information design under uncertainty: who should be told what?
+#
+# The operator knows tonight's state (normal, or "bad": the bottleneck serves only
+# a share of its usual rate); the crowd only knows the probability p of a bad night.
+# If everyone believes "bad with probability q", they play the large-crowd equilibrium
+# x_q of that belief, and the expected cost per person is
+#     V(q) = (1 - q) * cost_normal(x_q) + q * cost_bad(x_q).
+# Five ways to use the operator's knowledge:
+#   tell nobody          everyone keeps the prior:            V(p)
+#   announce the state   beliefs become 0 or 1:               (1 - p) V(0) + p V(1)
+#   best public hint     any public message moves beliefs to some q, on average p; the best
+#                        one gives the lower convex envelope of V at p (Bayesian persuasion,
+#                        "concavification"); with two states two messages are enough
+#   private advice       the best Bayes correlated equilibrium: privately recommended slots,
+#                        obedient on average over the nights on which that advice is given
+#                        (linear program over a menu of schedules)
+#   planner, informed    the optimum of each night (needs rewards to be followed)
+# Every public-information outcome is a Bayes correlated equilibrium, so private advice is
+# never worse than the best public hint; the question is how much better it is.
+# ============================================================================
+@dataclass
+class InfoDesign:
+    prior: dict[str, float]
+    expected: dict[str, float]  # policy -> expected cost per person
+    per_state: dict[str, dict[str, float]]  # policy -> state -> cost per person
+    beliefs: list[float]  # q grid
+    value: list[float]  # V(q) per person
+    envelope: list[float]  # lower convex envelope of V
+    hint: dict[str, float]  # best public hint: P(say "busy" | bad), P(say "busy" | normal), the two beliefs
+    private_support: dict[str, list[tuple[str, float]]]  # state -> [(schedule label, probability)]
+    max_gap_sec: float  # accuracy of every equilibrium used
+    tol_sec: float  # obedience tolerance used by the private-advice LP (>= max gap)
+    menu_size: int
+
+
+def _lower_envelope(q: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """Lower convex envelope of points (q_i, v_i), evaluated at every q_i."""
+    hull: list[int] = []
+    for i in range(len(q)):
+        while len(hull) >= 2:
+            i1, i2 = hull[-2], hull[-1]
+            if (v[i2] - v[i1]) * (q[i] - q[i1]) >= (v[i] - v[i1]) * (q[i2] - q[i1]):
+                hull.pop()
+            else:
+                break
+        hull.append(i)
+    return np.interp(q, q[hull], v[hull])
+
+
+def information_design(game: SlotGame, bad_factor: float = 0.7, p_bad: float = 0.3, n_beliefs: int = 21,
+                       steps: int = 8, tol: float = 0.001) -> InfoDesign:
+    cm = game.congestion
+    if not isinstance(cm, FluidQueue):
+        raise ValueError("information_design needs a fluid-queue game")
+    normal = FluidQueue(cm.service_rate, cm.T, cm.slot_minutes)
+    bad = FluidQueue(cm.service_rate * bad_factor, cm.T, cm.slot_minutes)
+    S = {"normal": game.with_congestion(normal), "bad": game.with_congestion(bad)}
+    prior = {"normal": 1 - p_bad, "bad": p_bad}
+    n = game.n
+
+    def belief_game(q):  # q = probability of a bad night given what people know
+        if q <= 1e-12:
+            return S["normal"]
+        if q >= 1 - 1e-12:
+            return S["bad"]
+        return game.with_congestion(Expected([normal, bad], np.array([1 - q, q])))
+
+    q = np.unique(np.r_[np.linspace(0, 1, n_beliefs), p_bad])
+    xs, gaps, x_prev = [], [], None
+    for qi in q:  # continuation: each belief warm-starts from the previous one
+        x, gp = large_crowd_equilibrium(belief_game(qi), x0=x_prev)
+        xs.append(x)
+        gaps.append(gp)
+        x_prev = x
+    V = np.array([((1 - qi) * S["normal"].social_cost(x) + qi * S["bad"].social_cost(x)) / n for qi, x in zip(q, xs)])
+    env = _lower_envelope(q, V)
+    ip = int(np.flatnonzero(np.isclose(q, p_bad))[0])
+
+    per, exp_ = {}, {}
+    xp = xs[ip]
+    per["tell nobody"] = {w: S[w].social_cost(xp) / n for w in S}
+    per["announce the state"] = {"normal": S["normal"].social_cost(xs[0]) / n, "bad": S["bad"].social_cost(xs[-1]) / n}
+    # best public hint: the pair of beliefs (q_i <= p <= q_j) whose chord is lowest at p
+    best = (V[ip], ip, ip, 1.0)
+    for i in range(ip + 1):
+        for j in range(ip, len(q)):
+            if j == i:
+                continue
+            lam = (q[j] - p_bad) / (q[j] - q[i])  # weight on message i
+            val = lam * V[i] + (1 - lam) * V[j]
+            if val < best[0] - 1e-12:
+                best = (val, i, j, lam)
+    _, i, j, lam = best
+    msgs = [(lam, i), (1 - lam, j)] if i != j else [(1.0, i)]
+    per["best public hint"] = {
+        "normal": sum(m * (1 - q[k]) / (1 - p_bad) * S["normal"].social_cost(xs[k]) for m, k in msgs) / n,
+        "bad": sum(m * q[k] / p_bad * S["bad"].social_cost(xs[k]) for m, k in msgs) / n}
+    hint = {"P(busy | bad)": float((1 - lam) * q[j] / p_bad) if i != j else 0.0,
+            "P(busy | normal)": float((1 - lam) * (1 - q[j]) / (1 - p_bad)) if i != j else 0.0,
+            "belief after quiet": float(q[i]), "belief after busy": float(q[j])}
+
+    o_n, o_b = continuous_optimum(S["normal"]), continuous_optimum(S["bad"])
+    o_e = continuous_optimum(belief_game(p_bad))
+    per["planner, informed"] = {"normal": S["normal"].social_cost(o_n) / n, "bad": S["bad"].social_cost(o_b) / n}
+
+    base = {"Nash, normal": xs[0], "Nash, bad": xs[-1], "Nash, unsure": xp,
+            "optimum, normal": o_n, "optimum, bad": o_b, "optimum, unsure": o_e}
+    menu, labels = list(base.values()), list(base)
+    for k, qi in enumerate(q):
+        if k not in (0, len(q) - 1, ip):
+            menu.append(xs[k])
+            labels.append(f"Nash, belief {qi:.2f}")
+    keys = list(base)
+    for a in range(len(keys)):
+        for b in range(a + 1, len(keys)):
+            for k, x in enumerate(_segment(base[keys[a]], base[keys[b]], steps)):
+                menu.append(x)
+                labels.append(f"{k + 1}/{steps} from {keys[a]} to {keys[b]}")
+    lp_tol = max(tol, max(gaps) + 1e-6)  # every equilibrium used above must be feasible
+    cost, P = large_crowd_ce(S, prior, menu, lp_tol)
+    per["private advice"] = {w: sum(P[r, c] * S[w].social_cost(menu[c]) for c in range(len(menu))) / prior[w] / n
+                             for r, w in enumerate(S)}
+    support = {w: [(labels[c], float(P[r, c] / prior[w])) for c in np.argsort(-P[r]) if P[r, c] > 1e-6]
+               for r, w in enumerate(S)}
+    order = ["tell nobody", "announce the state", "best public hint", "private advice", "planner, informed"]
+    for k in order:
+        exp_[k] = prior["normal"] * per[k]["normal"] + prior["bad"] * per[k]["bad"]
+    return InfoDesign(prior, {k: float(exp_[k]) for k in order}, {k: per[k] for k in order}, q.tolist(), V.tolist(),
+                      env.tolist(), hint, support, 60 * max(gaps), 60 * lp_tol, len(menu))

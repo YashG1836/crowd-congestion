@@ -15,20 +15,31 @@
 \usepackage{amsmath,amssymb,amsthm,xcolor,enumitem,caption,float}
 \usepackage{algorithm,algpseudocode,needspace,array}
 \hypersetup{colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black}
-% figures are produced by experiments.py into ../results/figures/ (on Overleaf they can also go in media/)
-\graphicspath{{../results/figures/}{media/}}
+% Draft 1 is archived with its own figures (as generated at git tag report-draft-1)
+\graphicspath{{figures/}{media/}}
 
-\setlist{nosep,leftmargin=*}
-\captionsetup{font=small,labelfont=bf}
+% spacing: give equations, floats, tables and lists room to breathe
+\makeatletter
+\g@addto@macro\normalsize{%
+  \setlength\abovedisplayskip{9pt plus 2pt minus 2pt}%
+  \setlength\belowdisplayskip{9pt plus 2pt minus 2pt}%
+  \setlength\abovedisplayshortskip{5pt plus 2pt}%
+  \setlength\belowdisplayshortskip{6pt plus 2pt minus 1pt}}
+\makeatother
+\setlength{\textfloatsep}{14pt plus 3pt minus 3pt}
+\setlength{\floatsep}{12pt plus 2pt minus 2pt}
+\setlength{\intextsep}{12pt plus 2pt minus 2pt}
+\renewcommand{\arraystretch}{1.15}
+\setlist{itemsep=2pt,topsep=4pt,leftmargin=*}
+\captionsetup{font=small,labelfont=bf,skip=6pt}
 \newtheorem{definition}{Definition}
 \newtheorem{proposition}{Proposition}
 
 %Header
 \pagestyle{fancy}
 \thispagestyle{empty}
-\rhead{ \textit{ }}
-\chead{}
-\fancyhead[LO]{Coordinating Crowds: Congestion, Information and Correlated Equilibrium}
+\fancyhead{}
+\fancyhead[C]{Coordinating Crowds: Congestion, Information and Correlated Equilibrium}
 
 \renewcommand{\undertitle}{Final Report \;|\; Foundations of AI -- Multi-Agent Systems \;|\; IIT Gandhinagar}
 
@@ -168,7 +179,7 @@ public, and students see the signal but not others' choices (A4).
 \Until{a state repeats (cycle) or the iteration cap}
 \State \Return the recorded state, with $\varepsilon=$ its largest remaining gain
 \end{algorithmic}\end{algorithm}
-\vspace{-0.5em}
+
 Queue carry-over destroys the potential function, so best response can cycle. We therefore return an
 $\varepsilon$-NE and report $\varepsilon$ (worst case over all 24 mess instances: \textbf{14 seconds}). The large-population
 (Wardrop) equilibrium is found by the method of successive averages, $x\leftarrow x+(\mathrm{BR}(x)-x)/(r+1)$
@@ -235,7 +246,7 @@ rolling-origin validation.
 % ============================================================================
 \section{Results}
 \begin{figure}[t]\centering\includegraphics[width=\linewidth]{e0_theory.png}
-\vspace{-1.6em}\caption{Theory. Left: PoA of Pigou's network grows with steepness. Middle: in the intersection game,
+\caption{Theory. Left: PoA of Pigou's network grows with steepness. Middle: in the intersection game,
 regret matching drives the CE gap of the empirical play to zero; Hedge reaches the coarse CE set. Right: stability
 limit $k^*(d)$ for $y_{t+1}=y_t-k\,y_{t-d}$ (matches the numeric root analysis to $10^{-6}$).}\label{fig:theory}\end{figure}
 
@@ -261,7 +272,7 @@ Mess dinner, generic (680) & 2.21 & 0.28 & 8.0 & 11\% & 0.27 & 1.93\\\bottomrule
 \end{tabular}\end{table}
 
 \begin{figure}[t]\centering\includegraphics[width=\linewidth]{e2_nash_vs_optimum.png}
-\vspace{-1.6em}\caption{Arrivals per slot at Jaiswal dinner: selfish (orange) overloads the counter (dashed); the
+\caption{Arrivals per slot at Jaiswal dinner: selfish (orange) overloads the counter (dashed); the
 planner (green) smooths arrivals to capacity.}\label{fig:poa}\end{figure}
 
 \textbf{RQ2: what the display should show.} Fig.~\ref{fig:pol}. \emph{More information can be worse.} For a
@@ -275,13 +286,13 @@ keep pessimistic memories. Their positive regret (0.37\,min) means the outcome l
 (Fig.~\ref{fig:sweeps}), as predicted by $k^*(d)$ shrinking with $d$.
 
 \begin{figure}[t]\centering\includegraphics[width=0.93\linewidth]{e3_policies.png}
-\vspace{-0.8em}\caption{Average cost under each policy and behaviour regime (Jaiswal dinner, 30 seeds, 95\% CI; log
+\caption{Average cost under each policy and behaviour regime (Jaiswal dinner, 30 seeds, 95\% CI; log
 scale). The CE recommendation ($\pi_7$) gives the same result in every regime; only $\pi_8$ reaches the optimum.}\label{fig:pol}\end{figure}
 
 \begin{figure}[t]\centering
 \includegraphics[width=\linewidth]{e4_sweeps.png}\\[2pt]
 \includegraphics[width=0.48\linewidth]{e5_delay_swing.png}
-\vspace{-0.6em}\caption{Top: reactive crowd, cost vs.\ private noise, share of viewers and number of display levels
+\caption{Top: reactive crowd, cost vs.\ private noise, share of viewers and number of display levels
 (dashed: Nash). Bottom: crowd swing vs.\ display delay and share of people reacting daily.}\label{fig:sweeps}\end{figure}
 
 \textbf{RQ3: correlated recommendations.} Fig.~\ref{fig:ce}. The Nash-based recommendation is a CE: nobody gains by
@@ -296,7 +307,7 @@ self-enforcing ($\pi_8$: \textbf{0.36\,min}, a 6$\times$ reduction). \textbf{H3 
 NE--optimum gap only together with obedience rewards.
 
 \begin{figure}[t]\centering\includegraphics[width=\linewidth]{e6_correlated.png}
-\vspace{-1.6em}\caption{Left: share of students using CE recommendations (non-users see the live display). Right:
+\caption{Left: share of students using CE recommendations (non-users see the live display). Right:
 advice alone (best CE / CCE from the LP) equals Nash; the optimum with the obedience reward is 6$\times$ cheaper.}\label{fig:ce}\end{figure}
 
 \textbf{Learning, incomplete information, data.} With published waits, Hedge and regret matching settle near Nash
@@ -311,7 +322,7 @@ never do), and recovers preferred slots for 97\% of students within one slot at 
 \begin{figure}[t]\centering
 \includegraphics[width=\linewidth]{e7_learning.png}\\[2pt]
 \includegraphics[width=\linewidth]{e1_heatmap.png}
-\vspace{-1.4em}\caption{Top: learning over 300 days (dashed: Nash). Bottom: synthetic QR scans per 10 minutes by
+\caption{Top: learning over 300 days (dashed: Nash). Bottom: synthetic QR scans per 10 minutes by
 weekday; the plateaus are the serving rate (Sunday lunch, Wednesday and Sunday dinner are special).}\label{fig:learn}\end{figure}
 
 \begin{table}[H]\centering\small
@@ -325,7 +336,7 @@ Lunch, special & 7.2 & 7.4 & 43.7 & \textbf{3.36} & 3.56\\
 Dinner, normal & 9.0 & 9.2 & 42.3 & \textbf{4.41} & 4.58\\
 Dinner, special & 7.2 & 7.4 & 43.4 & 4.37 & \textbf{3.63}\\
 \bottomrule\end{tabular}\end{table}
-\vspace{-0.4em}
+
 \noindent\textbf{RQ4: nowcasting.} Both forecasters predict the next 30 minutes within 8--14\% of the mean load.
 Scaling by tonight's scans (N1) helps most when an evening starts unusually (normal breakfasts $-13\%$, special
 dinners $-17\%$); elsewhere the two are within 5\%, as the extra information in a few early scans is offset by their
