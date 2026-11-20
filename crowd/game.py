@@ -663,3 +663,67 @@ def benchmarks(game: SlotGame, seed: int = 0, n_random: int = 2, eps_margin: flo
     worst = max(accepted, key=lambda s: s.social_cost)
     best = min(accepted, key=lambda s: s.social_cost)
     return Benchmarks(game, worst, best, opt, accepted)
+
+
+# ============================================================================
+# Model checks: is the fluid queue too kind to the planner?
+#
+# The fluid queue spreads every slot's arrivals perfectly evenly, so a schedule that
+# never exceeds capacity has zero wait. Real arrivals bunch up. `random_queue_waits`
+# keeps a schedule's head-counts but draws every arrival time uniformly inside its
+# slot, serves people one at a time at rate mu (optionally with random, exponential
+# service times) and measures the average wait in each slot by simulation.
+# `booking` is the obvious practical alternative to advice: people reserve slots one
+# by one in random order, each taking the free slot nearest to their favourite time,
+# with at most `share` x capacity reservations per slot.
+# ============================================================================
+def random_queue_waits(cm: FluidQueue, A: np.ndarray, runs: int = 200, seed: int = 0,
+                       random_service: bool = False) -> np.ndarray:
+    """Mean wait (minutes) of the arrivals in each slot when arrival times are random inside each slot."""
+    A = np.asarray(np.round(A), dtype=int)
+    rng = np.random.default_rng(seed)
+    dt, mu = cm.slot_minutes, cm.service_rate
+    slot = np.repeat(np.arange(len(A)), A)
+    N = len(slot)
+    if N == 0:
+        return np.zeros(len(A))
+    arrive = (slot[None, :] + rng.random((runs, N))) * dt
+    order = np.argsort(arrive, axis=1)
+    arrive = np.take_along_axis(arrive, order, axis=1)
+    slot_sorted = slot[order]
+    service = rng.exponential(1 / mu, (runs, N)) if random_service else np.full((runs, N), 1 / mu)
+    wait = np.empty((runs, N))
+    free = np.zeros(runs)  # time at which the server becomes free
+    for i in range(N):
+        start = np.maximum(arrive[:, i], free)
+        wait[:, i] = start - arrive[:, i]
+        free = start + service[:, i]
+    total = np.zeros(len(A))
+    np.add.at(total, slot_sorted.ravel(), wait.ravel())
+    return np.divide(total, A * runs, out=np.zeros(len(A)), where=A > 0)
+
+
+def random_queue_cost(game: SlotGame, X: np.ndarray, runs: int = 200, seed: int = 0,
+                      random_service: bool = False) -> float:
+    """Social cost per person of schedule X when arrival times inside each slot are random."""
+    X = np.asarray(X)
+    A = game.loads(X)
+    W = random_queue_waits(game.congestion, A, runs, seed, random_service)
+    return float(((A * W).sum() + (X * game.schedule_cost).sum()) / game.n)
+
+
+def booking(game: SlotGame, share: float = 1.0, seed: int = 0) -> np.ndarray:
+    """Slots reserved one person at a time in random order; each takes the free slot nearest their favourite."""
+    rng = np.random.default_rng(seed)
+    cap = np.full(game.T, int(np.floor(share * game.congestion.capacity)))
+    if cap.sum() < game.n:
+        raise ValueError("not enough reservable places for everyone")
+    people = np.repeat(np.arange(game.K), game.counts)
+    rng.shuffle(people)
+    X = np.zeros((game.K, game.T), dtype=int)
+    for k in people:
+        c = np.where(cap > 0, game.schedule_cost[k] + 1e-6 * rng.random(game.T), np.inf)
+        t = int(np.argmin(c))
+        X[k, t] += 1
+        cap[t] -= 1
+    return X

@@ -20,6 +20,16 @@ Traffic light: best correlated equilibrium gives each driver 5.25; the best symm
 | gym        |      240 | members  |         20 |            1.5 |  1.675 |       1.417 | 0.308 |      0     | 5.432 |     0     |
 | mess       |      680 | students |         10 |            9   |  2.21  |       1.987 | 0.278 |      0     | 7.952 |     3.333 |
 
+Random arrival times inside each slot (same schedules; 200 simulated runs), a planner re-tuned for randomness (optimum of a slower counter), and slot booking (random order, nearest free slot):
+
+| domain     |   nash_fluid |   opt_fluid |   nash_random |   opt_random |   nash_random_service |   opt_random_service |   opt_tuned |   tuned_factor |   booking_fluid |   booking_random |
+|:-----------|-------------:|------------:|--------------:|-------------:|----------------------:|---------------------:|------------:|---------------:|----------------:|-----------------:|
+| road       |       17.124 |       4.503 |        17.248 |        5.371 |                17.292 |                6.293 |       5.371 |           1    |           9.046 |            9.905 |
+| network    |        3.705 |       1.126 |         3.808 |        2.084 |                 4.353 |                3.182 |       1.765 |           0.95 |           1.95  |            2.898 |
+| restaurant |        2.346 |       0.497 |         2.946 |        1.325 |                 3.337 |                2.031 |       1.101 |           0.95 |           1.042 |            1.875 |
+| gym        |        1.675 |       0.308 |         2.809 |        2.122 |                 4.868 |                4.355 |       1.611 |           0.85 |           0.618 |            2.387 |
+| mess       |        2.21  |       0.278 |         2.375 |        0.849 |                 2.799 |                1.426 |       0.704 |           0.95 |           0.635 |            1.205 |
+
 ## E3 Public display: cost relative to Nash
 
 |                                    |   road |   network |   restaurant |   gym |   mess |
@@ -77,6 +87,29 @@ Compliance (reactive crowd, non-users see the display), cost relative to Nash:
 |     0.9 |   1.02 |      0.98 |         1    |  1.1  |   0.94 |
 |     1   |   1    |      1    |         1    |  1    |   1    |
 
+Best-response face check (large crowd): best CE saving over Nash, seconds per person, at three obedience tolerances (3000 sampled face schedules + column generation):
+
+| domain     |     nash |   cheapest_on_face |   face_dim |   menu |   saving_sec_tol_0.006s |   saving_sec_tol_0.0006s |   saving_sec_tol_6e-05s |
+|:-----------|---------:|-------------------:|-----------:|-------:|------------------------:|-------------------------:|------------------------:|
+| road       | 17.0875  |           12.9398  |         28 |   3056 |                 0.02689 |                  0.0027  |                 0.00028 |
+| network    |  3.74    |            2.7032  |         32 |   3060 |                 0.00665 |                  0.00067 |                 7e-05   |
+| restaurant |  2.375   |            0.80521 |         10 |   3031 |                 0.00724 |                  0.00072 |                 7e-05   |
+| gym        |  1.675   |            0.48087 |          3 |   3012 |                 0.00416 |                  0.00042 |                 4e-05   |
+| mess       |  2.15999 |            1.67896 |          5 |   3025 |                 0.004   |                  0.0004  |                 4e-05   |
+
+Noisy app users (logit lambda), cost relative to Nash (calm crowd for non-users):
+
+|                                       |   road |   network |   restaurant |   gym |   mess |
+|:--------------------------------------|-------:|----------:|-------------:|------:|-------:|
+| (1.0, 'CE advice')                    |   1.21 |      0.78 |         0.89 |  1.11 |   0.51 |
+| (1.0, 'CE advice + reward, margin 0') |   0.78 |      3.02 |         1.23 |  1.97 |   0.96 |
+| (1.0, 'CE advice + reward, margin 1') |   0.54 |      2.14 |         0.79 |  1.18 |   0.58 |
+| (1.0, 'CE advice + reward, margin 2') |   0.39 |      1.28 |         0.49 |  0.68 |   0.34 |
+| (3.0, 'CE advice')                    |   1.23 |      1.08 |         0.81 |  1.83 |   0.47 |
+| (3.0, 'CE advice + reward, margin 0') |   0.76 |      2.8  |         0.99 |  1.79 |   0.72 |
+| (3.0, 'CE advice + reward, margin 1') |   0.31 |      0.57 |         0.29 |  0.38 |   0.18 |
+| (3.0, 'CE advice + reward, margin 2') |   0.27 |      0.32 |         0.23 |  0.23 |   0.13 |
+
 ## E5 Who should be told what (bad day: capacity 70%, probability 0.3; large-crowd limit)
 
 | domain     |   tell nobody |   announce the state |   best public hint |   private advice |   planner, informed |   P(busy|bad) |   P(busy|normal) |   tolerance (s) |
@@ -93,6 +126,41 @@ Per-state costs (road):
 |:-------|--------------:|---------------------:|-------------------:|-----------------:|--------------------:|
 | normal |         12.51 |                17.09 |              13.28 |            13.26 |                4.5  |
 | bad    |         46    |                50.25 |              42.02 |            41.94 |               14.41 |
+
+How bad and how often (11 belief points for the sweep):
+
+| domain     |   capacity |   p_bad |   announce/silence |   hint/silence |   privacy gain % |   max_gap_sec |
+|:-----------|-----------:|--------:|-------------------:|---------------:|-----------------:|--------------:|
+| road       |       0.5  |     0.3 |              1.401 |          0.976 |            0.06  |         4.626 |
+| road       |       0.6  |     0.3 |              1.397 |          0.999 |            0.006 |         3.172 |
+| road       |       0.85 |     0.3 |              0.97  |          0.935 |            0.111 |         1.332 |
+| road       |       0.7  |     0.1 |              1.026 |          0.932 |            0.319 |         2.123 |
+| road       |       0.7  |     0.5 |              1.3   |          1     |            0.005 |         2.123 |
+| road       |       0.7  |     0.3 |              1.199 |          0.971 |            0.173 |         2.167 |
+| network    |       0.5  |     0.3 |              0.906 |          0.905 |            0.014 |         0.376 |
+| network    |       0.6  |     0.3 |              0.94  |          0.916 |            0.002 |         0.014 |
+| network    |       0.85 |     0.3 |              0.91  |          0.91  |            0.006 |         0.012 |
+| network    |       0.7  |     0.1 |              0.778 |          0.778 |            0.031 |         1.558 |
+| network    |       0.7  |     0.5 |              0.855 |          0.855 |            0.101 |         1.558 |
+| network    |       0.7  |     0.3 |              0.835 |          0.835 |            0.01  |         0.977 |
+| restaurant |       0.5  |     0.3 |              1.015 |          0.949 |            0.043 |         2.891 |
+| restaurant |       0.6  |     0.3 |              0.7   |          0.7   |            0.029 |         1.407 |
+| restaurant |       0.85 |     0.3 |              0.731 |          0.731 |            0.009 |         0.012 |
+| restaurant |       0.7  |     0.1 |              0.722 |          0.722 |            0.048 |         1.558 |
+| restaurant |       0.7  |     0.5 |              0.82  |          0.82  |            0.14  |         1.558 |
+| restaurant |       0.7  |     0.3 |              0.728 |          0.728 |            0.153 |         1.253 |
+| gym        |       0.5  |     0.3 |              1.169 |          0.925 |            0.811 |         4.164 |
+| gym        |       0.6  |     0.3 |              0.871 |          0.814 |            0.039 |        10.852 |
+| gym        |       0.85 |     0.3 |              0.642 |          0.642 |            0.169 |         2.018 |
+| gym        |       0.7  |     0.1 |              0.553 |          0.553 |            0.058 |         4.683 |
+| gym        |       0.7  |     0.5 |              0.612 |          0.612 |            0.137 |         4.683 |
+| gym        |       0.7  |     0.3 |              0.508 |          0.508 |            0.136 |         4.683 |
+| mess       |       0.5  |     0.3 |              1.231 |          0.955 |            0.138 |         1.268 |
+| mess       |       0.6  |     0.3 |              0.938 |          0.938 |            0.201 |         1.731 |
+| mess       |       0.85 |     0.3 |              0.838 |          0.821 |            0.02  |         0.012 |
+| mess       |       0.7  |     0.1 |              0.811 |          0.804 |            0.012 |         0.012 |
+| mess       |       0.7  |     0.5 |              0.819 |          0.797 |            0.009 |         0.012 |
+| mess       |       0.7  |     0.3 |              0.752 |          0.737 |            0.014 |         0.046 |
 
 ## E6 Learning
 
@@ -206,3 +274,212 @@ Nowcasting MAE (scans per slot):
 | lunch     | special |                3.364 |              3.564 |
 | dinner    | normal  |                4.413 |              4.576 |
 | dinner    | special |                4.371 |              3.635 |
+
+## E8 Small crowds solved exactly (identical people, 3 slots, load 0.8)
+
+|   n |   pure_nash |   best_pure_nash |   best_ce |   optimum |   mixed_nash |
+|----:|------------:|-----------------:|----------:|----------:|-------------:|
+|   2 |           1 |            3     |     3     |     3     |        4.909 |
+|   3 |           1 |            1.333 |     1.333 |     1.333 |        4.171 |
+|   4 |           1 |            1.625 |     1.625 |     1.625 |        3.693 |
+|   5 |           2 |            1.2   |     1.2   |     1.2   |        3.384 |
+|   6 |           1 |            1.556 |     1.5   |     1.333 |        3.283 |
+|   7 |           0 |          nan     |     1.419 |     1.208 |        3.168 |
+|   8 |           1 |            1.536 |     1.508 |     1.25  |        3.111 |
+|   9 |           0 |          nan     |     1.687 |     1.27  |        3.056 |
+|  10 |           1 |            2.12  |     1.565 |     1.2   |        3.019 |
+|  11 |           0 |          nan     |     1.798 |     1.273 |        2.915 |
+|  12 |           1 |            2     |     1.714 |     1.167 |        2.956 |
+|  13 |           1 |            2.237 |     1.817 |     1.231 |        2.898 |
+|  14 |           1 |            2.143 |     1.905 |     1.206 |        2.895 |
+|  15 |           1 |            2.12  |     1.825 |     1.2   |        2.871 |
+|  16 |           1 |            2.25  |     1.97  |     1.239 |        2.842 |
+|  17 |           1 |            2.035 |     1.861 |     1.176 |        2.846 |
+|  18 |           2 |            2.204 |     1.963 |     1.222 |        2.809 |
+|  19 |           1 |            2.053 |     1.939 |     1.18  |        2.809 |
+|  20 |           1 |            2.12  |     1.937 |     1.2   |        2.785 |
+|  21 |           1 |            2.143 |     2.029 |     1.206 |        2.773 |
+|  22 |           1 |            2.054 |     1.935 |     1.182 |        2.766 |
+|  23 |           1 |            2.217 |     2.027 |     1.217 |        2.748 |
+|  24 |           1 |            2     |     1.927 |     1.167 |        2.75  |
+|  25 |           1 |            2.12  |     1.994 |     1.2   |        2.729 |
+|  26 |           1 |            2.077 |     2.021 |     1.187 |        2.724 |
+|  27 |           1 |            2.066 |     1.978 |     1.185 |        2.715 |
+|  28 |           1 |            2.143 |     2.055 |     1.205 |        2.705 |
+|  29 |           1 |            2.02  |     1.962 |     1.172 |        2.703 |
+|  30 |           2 |            2.12  |     2.028 |     1.2   |        2.69  |
+|  31 |           1 |            2.032 |     1.99  |     1.175 |        2.688 |
+|  32 |           1 |            2.074 |     2.005 |     1.188 |        2.673 |
+|  33 |           1 |            2.091 |     2.062 |     1.191 |        2.589 |
+|  34 |           1 |            2.035 |     1.987 |     1.176 |        2.669 |
+|  35 |           1 |            2.143 |     2.049 |     1.2   |        2.651 |
+|  36 |           1 |            2     |     1.968 |     1.167 |        2.791 |
+|  37 |           1 |            2.08  |     2.024 |     1.189 |        2.794 |
+|  38 |           1 |            2.053 |     2.027 |     1.18  |        2.776 |
+|  39 |           1 |            2.045 |     2.005 |     1.179 |        2.769 |
+|  40 |           1 |            2.1   |     2.062 |     1.193 |        2.763 |
+|  41 |           1 |            2.014 |     1.986 |     1.171 |        2.765 |
+|  42 |           2 |            2.085 |     2.038 |     1.19  |        2.751 |
+|  43 |           1 |            2.023 |     2.002 |     1.173 |        2.747 |
+|  44 |           1 |            2.054 |     2.019 |     1.182 |        2.618 |
+|  45 |           1 |            2.067 |     2.052 |     1.184 |        2.619 |
+|  46 |           1 |            2.026 |     2.001 |     1.174 |        2.75  |
+|  47 |           1 |            2.106 |     2.05  |     1.191 |        2.76  |
+|  48 |           1 |            2     |     1.983 |     1.167 |        2.744 |
+|  49 |           1 |            2.06  |     2.03  |     1.184 |        2.73  |
+|  50 |           1 |            2.04  |     2.026 |     1.177 |        2.735 |
+|  51 |           1 |            2.035 |     2.012 |     1.176 |        2.734 |
+|  52 |           1 |            2.077 |     2.057 |     1.187 |        2.73  |
+|  53 |           1 |            2.011 |     1.995 |     1.17  |        2.702 |
+|  54 |           2 |            2.066 |     2.038 |     1.185 |        2.72  |
+|  55 |           1 |            2.018 |     2.006 |     1.171 |        2.709 |
+|  56 |           1 |            2.042 |     2.022 |     1.179 |        2.697 |
+|  57 |           1 |            2.053 |     2.044 |     1.18  |        2.697 |
+|  58 |           1 |            2.02  |     2.005 |     1.172 |        2.697 |
+|  59 |           1 |            2.085 |     2.046 |     1.186 |        2.693 |
+|  60 |           1 |            2     |     1.989 |     1.167 |        2.672 |
+
+Support of the best CE at n = 10: [([4, 5, 1], 0.9907975460122701), ([8, 0, 2], 0.009202453987729951)]
+
+Bad days in small crowds (best public hint followed by the best CE of its belief):
+
+| n     |   capacity |   tell_nobody |   announce |   best_hint |   private |   privacy_gain |
+|:------|-----------:|--------------:|-----------:|------------:|----------:|---------------:|
+| 4     |        0.7 |         2.526 |      2.544 |       2.508 |     2.172 |          0.134 |
+| 6     |        0.7 |         2.464 |      2.213 |       2.213 |     2.121 |          0.041 |
+| 8     |        0.7 |         2.807 |      2.531 |       2.531 |     2.359 |          0.068 |
+| 10    |        0.7 |         2.997 |      2.495 |       2.495 |     2.448 |          0.019 |
+| 15    |        0.7 |         3.239 |      3.013 |       3.013 |     2.722 |          0.096 |
+| 20    |        0.7 |         3.333 |      3.083 |       3.083 |     2.738 |          0.112 |
+| 30    |        0.7 |         3.659 |      3.227 |       3.227 |     2.875 |          0.109 |
+| 40    |        0.7 |         3.748 |      3.272 |       3.272 |     2.983 |          0.088 |
+| 60    |        0.7 |         3.886 |      3.23  |       3.23  |     3.012 |          0.068 |
+| 80    |        0.7 |         4.188 |      3.255 |       3.255 |     3.088 |          0.051 |
+| 120   |        0.7 |         4.204 |      3.24  |       3.24  |     3.099 |          0.043 |
+| large |        0.7 |         4.277 |      3.243 |       3.243 |     3.201 |          0.013 |
+| 4     |        0.5 |         4.747 |      4.699 |       4.634 |     4.017 |          0.133 |
+| 6     |        0.5 |         5.291 |      4.95  |       4.907 |     4.429 |          0.097 |
+| 8     |        0.5 |         5.892 |      7.356 |       5.383 |     4.675 |          0.132 |
+| 10    |        0.5 |         6.256 |      7.395 |       5.599 |     4.803 |          0.142 |
+| 15    |        0.5 |         6.875 |      7.578 |       5.944 |     5.269 |          0.113 |
+| 20    |        0.5 |         6.996 |      7.656 |       6.111 |     5.488 |          0.102 |
+| 30    |        0.5 |         7.084 |      7.72  |       6.276 |     5.7   |          0.092 |
+| 40    |        0.5 |         7.113 |      7.743 |       6.343 |     5.822 |          0.082 |
+| 60    |        0.5 |         7.134 |      7.693 |       6.37  |     5.946 |          0.067 |
+| 80    |        0.5 |         7.145 |      7.714 |       6.463 |     6.036 |          0.066 |
+| 120   |        0.5 |         7.154 |      7.699 |       6.46  |     6.09  |          0.057 |
+| large |        0.5 |         7.17  |      7.7   |       6.582 |     6.235 |          0.053 |
+
+Crowd shapes (exact):
+
+| shape                           |   n |   pure_nash |   best_ce |   mixed |
+|:--------------------------------|----:|------------:|----------:|--------:|
+| base: 3 slots, load 0.8, beta 2 |   4 |       1.625 |     1.625 |   3.693 |
+| base: 3 slots, load 0.8, beta 2 |   6 |       1.556 |     1.5   |   3.283 |
+| base: 3 slots, load 0.8, beta 2 |   8 |       1.536 |     1.508 |   3.111 |
+| base: 3 slots, load 0.8, beta 2 |  10 |       2.12  |     1.565 |   3.019 |
+| base: 3 slots, load 0.8, beta 2 |  12 |       2     |     1.714 | nan     |
+| base: 3 slots, load 0.8, beta 2 |  16 |       2.25  |     1.97  | nan     |
+| base: 3 slots, load 0.8, beta 2 |  20 |       2.12  |     1.937 | nan     |
+| base: 3 slots, load 0.8, beta 2 |  30 |       2.12  |     2.028 | nan     |
+| base: 3 slots, load 0.8, beta 2 |  40 |       2.1   |     2.062 | nan     |
+| lighter load (0.6)              |   4 |       1.812 |     1.162 | nan     |
+| lighter load (0.6)              |   6 |       1.333 |     1.25  |   2.144 |
+| lighter load (0.6)              |   8 |       1.812 |     1.342 |   2.063 |
+| lighter load (0.6)              |  10 |       1.51  |     1.427 |   2.029 |
+| lighter load (0.6)              |  12 |       1.813 |     1.525 |   2.013 |
+| lighter load (0.6)              |  16 |       1.812 |     1.627 |   2.003 |
+| lighter load (0.6)              |  20 |       1.812 |     1.692 |   2.001 |
+| lighter load (0.6)              |  30 |       1.923 |     1.785 |   2     |
+| lighter load (0.6)              |  40 |       1.981 |     1.833 |   2     |
+| full load (1.0)                 |   4 |     nan     |     3.207 |   5.723 |
+| full load (1.0)                 |   6 |       1.333 |     1.333 |   4.842 |
+| full load (1.0)                 |   8 |     nan     |     2.459 |   4.707 |
+| full load (1.0)                 |  10 |     nan     |     2.811 |   4.506 |
+| full load (1.0)                 |  12 |     nan     |     2.502 |   4.327 |
+| full load (1.0)                 |  16 |     nan     |     3.143 |   4.232 |
+| full load (1.0)                 |  20 |     nan     |     3.184 |   4.153 |
+| full load (1.0)                 |  30 |     nan     |     3.175 |   4.058 |
+| full load (1.0)                 |  40 |     nan     |     3.778 |   4.03  |
+| more flexible (beta 1)          |   4 |       1.125 |     1.125 |   2.74  |
+| more flexible (beta 1)          |   6 |       0.667 |     0.667 |   2.169 |
+| more flexible (beta 1)          |   8 |       0.625 |     0.625 |   1.875 |
+| more flexible (beta 1)          |  10 |       0.6   |     0.6   |   1.699 |
+| more flexible (beta 1)          |  12 |       0.583 |     0.583 |   1.595 |
+| more flexible (beta 1)          |  16 |     nan     |     0.697 |   1.501 |
+| more flexible (beta 1)          |  20 |       1.026 |     0.778 |   1.445 |
+| more flexible (beta 1)          |  30 |     nan     |     0.907 |   1.378 |
+| more flexible (beta 1)          |  40 |     nan     |     0.974 | nan     |
+| more rigid (beta 4)             |   4 |       4     |     3.8   |   5.125 |
+| more rigid (beta 4)             |   6 |       3.333 |     3.333 |   4.677 |
+| more rigid (beta 4)             |   8 |       3.063 |     3.063 |   4.436 |
+| more rigid (beta 4)             |  10 |       3.58  |     3.297 |   4.291 |
+| more rigid (beta 4)             |  12 |       3.333 |     3.333 |   4.198 |
+| more rigid (beta 4)             |  16 |       3.484 |     3.484 |   4.122 |
+| more rigid (beta 4)             |  20 |       3.58  |     3.58  |   4.071 |
+| more rigid (beta 4)             |  30 |       3.853 |     3.725 |   4.022 |
+| more rigid (beta 4)             |  40 |       3.782 |     3.782 |   4.008 |
+| 4 slots                         |   4 |     nan     |     2.25  |   5.773 |
+| 4 slots                         |   6 |       2.333 |     2.269 |   4.871 |
+| 4 slots                         |   8 |     nan     |     2.5   |   4.53  |
+| 4 slots                         |  10 |     nan     |     2.492 |   4.288 |
+| 4 slots                         |  12 |     nan     |     2.606 | nan     |
+| 4 slots                         |  16 |     nan     |     2.797 | nan     |
+| 4 slots                         |  20 |     nan     |     3.071 | nan     |
+| 4 slots                         |  30 |     nan     |     3.394 | nan     |
+| 4 slots                         |  40 |     nan     |     3.548 | nan     |
+| 2 types: flexible and rigid     |   4 |       1.125 |     1.125 | nan     |
+| 2 types: flexible and rigid     |   6 |       1.056 |     1.056 | nan     |
+| 2 types: flexible and rigid     |   8 |       1.036 |     1.036 | nan     |
+| 2 types: flexible and rigid     |  10 |       1.026 |     1.026 | nan     |
+| 2 types: flexible and rigid     |  12 |       1.021 |     1.021 | nan     |
+| 2 types: flexible and rigid     |  16 |       1.382 |     1.071 | nan     |
+| 2 types: flexible and rigid     |  20 |       1.026 |     1.026 | nan     |
+| 2 types: flexible and rigid     |  30 |       1.31  |     1.103 | nan     |
+| 2 types: flexible and rigid     |  40 |       1.165 |     1.12  | nan     |
+| 2 groups: middle and late       |   4 |       2     |     2     | nan     |
+| 2 groups: middle and late       |   6 |       2     |     2     | nan     |
+| 2 groups: middle and late       |   8 |       2     |     2     | nan     |
+| 2 groups: middle and late       |  10 |       2     |     2     | nan     |
+| 2 groups: middle and late       |  12 |       2     |     2     | nan     |
+| 2 groups: middle and late       |  16 |       2     |     2     | nan     |
+| 2 groups: middle and late       |  20 |       2     |     2     | nan     |
+| 2 groups: middle and late       |  30 |       2     |     2     | nan     |
+| 2 groups: middle and late       |  40 |       2     |     2     | nan     |
+
+## Paired tests (sign-flip permutation, Holm within each family)
+
+| family                                                | domain     |   mean_difference |       p |   p_holm |   seeds |
+|:------------------------------------------------------|:-----------|------------------:|--------:|---------:|--------:|
+| public display worse than no information (reactive)   | road       |          48.1288  | 0       |  2e-05   |      30 |
+| public display worse than no information (reactive)   | network    |          20.6584  | 0       |  2e-05   |      30 |
+| public display worse than no information (reactive)   | restaurant |           9.48989 | 0       |  2e-05   |      30 |
+| public display worse than no information (reactive)   | gym        |          23.0522  | 0       |  2e-05   |      30 |
+| public display worse than no information (reactive)   | mess       |           9.65147 | 0       |  2e-05   |      30 |
+| display for 30% better than public display (reactive) | road       |         -47.37    | 0       |  2e-05   |      30 |
+| display for 30% better than public display (reactive) | network    |         -18.6253  | 0       |  2e-05   |      30 |
+| display for 30% better than public display (reactive) | restaurant |          -9.43531 | 0       |  2e-05   |      30 |
+| display for 30% better than public display (reactive) | gym        |         -23.0427  | 0       |  2e-05   |      30 |
+| display for 30% better than public display (reactive) | mess       |          -9.67196 | 0       |  2e-05   |      30 |
+| CE advice better than public display (reactive)       | road       |         -45.814   | 0       |  2e-05   |      30 |
+| CE advice better than public display (reactive)       | network    |         -19.9254  | 0       |  2e-05   |      30 |
+| CE advice better than public display (reactive)       | restaurant |          -9.38827 | 0       |  2e-05   |      30 |
+| CE advice better than public display (reactive)       | gym        |         -23.1829  | 0       |  2e-05   |      30 |
+| CE advice better than public display (reactive)       | mess       |          -9.2874  | 0       |  2e-05   |      30 |
+| reward margin 2 better than margin 0 (noisy users)    | road       |          -8.38879 | 0.00183 |  0.00915 |      10 |
+| reward margin 2 better than margin 0 (noisy users)    | network    |          -9.13882 | 0.00206 |  0.00915 |      10 |
+| reward margin 2 better than margin 0 (noisy users)    | restaurant |          -1.72411 | 0.00191 |  0.00915 |      10 |
+| reward margin 2 better than margin 0 (noisy users)    | gym        |          -2.25179 | 0.00194 |  0.00915 |      10 |
+| reward margin 2 better than margin 0 (noisy users)    | mess       |          -1.27621 | 0.00184 |  0.00915 |      10 |
+
+## Verification checks
+
+```
+{
+ "monotone_min": 0.0,
+ "monotone_samples": 100000,
+ "exact_vs_full_lp": 0.0,
+ "even_arrivals_vs_fluid_min": 0.01207729468601082,
+ "service_time_min": 0.1111111111111111
+}
+```

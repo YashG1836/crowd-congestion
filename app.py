@@ -20,6 +20,7 @@ from crowd.mess import (MEALS, MESSES, arrival_heatmap, estimate_preferred_slots
                         meal_instance, nowcast_errors, preference_accuracy, roster_truth, scans_per_slot)
 from crowd.simulate import EXP3, Coarse, Forecast, Hedge, Live, Logit, Noisy, NoInfo, Partial, Recommend, \
     RegretMatching, simulate
+from crowd.smallcrowd import SmallCrowd
 from crowd.theory import dinner_game, hedge, intersection_game, pigou_poa, regret_matching, shared_counter_dynamics
 
 st.set_page_config(page_title="Coordinating Crowds: interactive lab", layout="wide")
@@ -197,7 +198,8 @@ def page_games() -> None:
     intro("Games small enough to solve exactly.",
           "They show the three effects behind everything else: selfishness wastes, shared information can backfire, "
           "and private correlated advice can beat every Nash equilibrium.", "move the sliders.")
-    t1, t2, t3, t4 = st.tabs(["Pigou's two roads", "Two students: Peak or Late", "A traffic light", "Learning finds equilibria"])
+    t1, t2, t3, t5, t4 = st.tabs(["Pigou's two roads", "Two students: Peak or Late", "A traffic light",
+                                  "Small crowds, solved exactly", "Learning finds equilibria"])
     with t1:
         st.markdown("Road A costs 1; road B costs x^p when a share x uses it. Selfishly everyone takes B; a planner splits.")
         p = st.slider("steepness p", 1.0, 12.0, 1.0, 0.5)
@@ -230,6 +232,26 @@ def page_games() -> None:
                     ("best correlated equilibrium (LP)", f"{-best.expected_costs[0]:.2f} each", None)])
         st.dataframe(pd.DataFrame({"traffic light says": list(best.support()), "probability": list(best.support().values())}),
                      hide_index=True)
+    with t5:
+        st.markdown("n identical people, three 10-minute slots (early / peak / late), everyone prefers the middle one, "
+                    "and the counter always needs 80% of its capacity. Every number is exact: a linear program over "
+                    "head-counts (who goes where is shuffled).")
+        n = st.slider("crowd size n", 2, 40, 10)
+        crowd = SmallCrowd(n)
+        soc = crowd.social()
+        ne = crowd.pure_nash()
+        ce, p = crowd.best_ce()
+        opt, mo = crowd.optimum()
+        metric_row([("best pure Nash", f"{soc[ne].min():.2f} min" if len(ne) else "none exists", None),
+                    ("best correlated equilibrium", f"{ce:.2f} min", None),
+                    ("planner", f"{opt:.2f} min", f"{tuple(int(v) for v in mo)}"),
+                    ("gap closed by correlation", f"{(soc[ne].min() - ce) / max(soc[ne].min() - opt, 1e-9):.0%}"
+                     if len(ne) else "n/a", None)])
+        st.dataframe(pd.DataFrame([{"advice (early / peak / late)": " / ".join(str(int(v)) for v in crowd.M[j]),
+                                    "how often": f"{p[j]:.1%}", "cost per person": round(soc[j], 3)}
+                                   for j in np.argsort(-p) if p[j] > 1e-4]), hide_index=True)
+        st.caption("At 10 people the advice is 4/5/1 on 99% of days and 8/0/2 on the rest: the rare crowded day makes "
+                   "the late slot worth obeying. As n grows the advantage fades (Proposition 2 in the report).")
     with t4:
         ig = intersection_game()
         rounds = st.select_slider("rounds", [1000, 3000, 6000, 12000], 6000)
@@ -374,9 +396,9 @@ def page_advice() -> None:
                         ("best CE (atomic, with tolerance)", f"{atomic.expected_cost / n:.3f}", None),
                         ("best CE (large crowd, exact)", f"{lc.best_ce:.3f}", f"large-crowd Nash {lc.nash:.3f}"),
                         ("planner", f"{b.optimum.social_cost / n:.3f}", None)])
-        st.caption("With complete information, every correlated equilibrium of a large crowd whose costs increase with "
-                   "the load costs what Nash costs (report, Proposition 2). Advice coordinates; a reward is needed to "
-                   "do better.")
+        st.caption("In a large crowd no correlated equilibrium beats Nash (report, Section 5.4: the queue is monotone, "
+                   "and a search of the remaining candidates finds none). In small crowds it can (see 'Small crowds, "
+                   "solved exactly' on page 1). Advice coordinates; a reward is needed to do better.")
     with t2:
         key = f"{g.name}|{g.congestion.service_rate:.4f}|{g.n}"  # this facility or meal, at this service rate
         c = st.columns(2)

@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| 📄 **Final report** (11 pages) | [report/main.pdf](report/main.pdf) · earlier draft: [report/draft1/main.pdf](report/draft1/main.pdf) |
+| 📄 **Final report** | [report/main.pdf](report/main.pdf) · earlier draft: [report/draft1/main.pdf](report/draft1/main.pdf) |
 | 🌐 **Website** (one page per step, with a guided demo) | **https://yashg1836.github.io/crowd-congestion/** |
 | 🧪 **Interactive lab** (run every experiment) | **https://crowd-congestion.streamlit.app/** |
 | 🧭 **Design** (model, proofs, experiments) | [DESIGN.md](DESIGN.md) |
@@ -27,11 +27,11 @@ detailed (synthetic) case study of the four IITGN messes: 3000 students, 3 meals
 
 | | Step | Finding | |
 |---|---|---|---|
-| 1 | **Selfish timing** | The Nash equilibrium costs **3.3–8.0×** the planner's schedule in all five facilities; at the four messes that is **132 student-hours lost per normal day**. | E2 |
+| 1 | **Selfish timing** | The Nash equilibrium costs **3.3–8.0×** the planner's schedule in all five facilities (1.7–3.4× when arrival times are random and the planner keeps a buffer); at the four messes that is **132 student-hours lost per normal day**. A booking system removes the queue but ignores who is flexible: about 2× the planner. | E2 |
 | 2 | **Public display** | If everyone reacts to the same numbers, the rush jumps between slots: a public display costs **3.7–17× Nash** for a reactive crowd. Showing it to only 30% of people removes most of the damage. | E3 |
-| 3 | **Private advice (CE)** | Shuffled recommendations from a Nash schedule are a correlated equilibrium: obeyed, stable (nobody switches), the same for every kind of crowd; herding stops once 50–90% use the app. In a large crowd **no correlated equilibrium beats Nash** (proved; confirmed by linear programming in all five facilities). | E1, E4 |
-| 4 | **Advice + reward** | The CE obedience constraints price the **smallest reward** that makes the optimum self-enforcing: every minute of reward saves 2.4–6.9 minutes, and **nobody is worse off** than under selfish timing. Jaiswal dinner: **2.24 → 0.36 min** per student. | E4, E7 |
-| 5 | **Bad days** | When the operator knows more than the crowd, *what* is said matters, not privacy: announcing a road accident **raises** the expected cost by 20%, a vague hint lowers it, and private (Bayes-correlated) advice adds at most 0.2%. | E5 |
+| 3 | **Private advice (CE)** | **Small crowds, solved exactly:** the best correlated equilibrium beats every pure Nash equilibrium (it closes **60%** of the gap to the planner at 10 people) and the advantage fades as the crowd grows. **Large crowds:** we prove the queue is monotone, which confines every CE to a small "best-response face"; searching it (3,000 schedules + column generation) finds **no CE cheaper than Nash**. Shuffled Nash advice is obeyed, never swings, and stops herding once 50–90% use it. | E1, E4, E8 |
+| 4 | **Advice + reward** | The CE obedience constraints price the **smallest reward** that makes the optimum self-enforcing: every minute of reward saves 2.4–6.9 minutes and **nobody is worse off** than under selfish timing (Jaiswal dinner: **2.24 → 0.36 min**). Noisy (logit) users need a margin of 1–2 minutes on top. | E4, E7 |
+| 5 | **Bad days** | *What* is said matters most: announcing a bad day **backfires** on the road (+20%) and, on severe days, in most facilities; a calibrated hint never does worse. Privacy (Bayes-correlated advice) pays in small crowds and on severe days, and adds little in large crowds on mild ones. | E5, E8 |
 | | **Learning** | Regret-matching learners who see every slot's wait end near the CE (= Nash) set; learners who see only their own wait keep large regret. | E1, E6 |
 | | **Mess data** | From scans alone we recover the serving rate (within 2–3% when a queue forms) and preferred times (97–100% within one slot), and forecast the next 30 minutes within 8–14%. | E7 |
 
@@ -41,14 +41,16 @@ All figures are produced by `python experiments.py`.
 
 | | |
 |---|---|
-| **E1** Small games: correlation beats Nash | **E2** Selfish timing vs the planner |
+| **E1** Small games: correlation beats Nash | **E2** Selfish timing vs the planner; robustness to random arrivals |
 | <img src="results/figures/fig1_small_games.png"> | <img src="results/figures/fig2_selfish_vs_planner.png"> |
 | **E3** Public display, five facilities × three crowds | **E4** How many must use the app; price of obedience |
 | <img src="results/figures/fig3_public_display.png"> | <img src="results/figures/fig4_ce_advice.png"> |
-| **E5** Who should be told what on bad days | **E7** Mess: QR scans and every meal |
+| **E5** When announcing a bad day backfires; the road's value of beliefs | **E7** Mess: QR scans and every meal |
 | <img src="results/figures/fig5_uncertainty.png"> | <img src="results/figures/fig6_mess_data.png"> |
 | **E7** Jaiswal dinner, day by day | **E7** Who should see the display; delay and swing |
 | <img src="results/figures/fig7_mess_dinners.png"> | <img src="results/figures/fig8_mess_display.png"> |
+| **E8** Small crowds solved exactly; privacy on bad days | |
+| <img src="results/figures/fig9_small_crowds.png"> | |
 
 ## Run it
 
@@ -57,8 +59,8 @@ git clone https://github.com/YashG1836/crowd-congestion.git && cd crowd-congesti
 python -m venv .venv && source .venv/bin/activate     # Python 3.10+
 pip install -r requirements.txt
 
-pytest -q                     # 58 checks
-python experiments.py         # E1-E7 -> results/ and docs/data.js (~13 min; --quick for 5 seeds)
+pytest -q                     # 66 checks
+python experiments.py         # E1-E8 -> results/ and docs/data.js (~35 min; --quick for 5 seeds)
 streamlit run app.py          # the interactive lab
 open docs/index.html          # the website, offline
 ```
@@ -70,14 +72,17 @@ The report compiles from inside `report/` with any LaTeX engine (for example `te
 ```
 crowd/            the library, one file per layer
   theory.py       small games: Nash and correlated equilibria (LPs), Pigou, learning (regret matching, Hedge)
-  game.py         slot game: fluid queue, Nash / large-crowd (Wardrop) / optimum solvers, price of anarchy
-  correlated.py   shuffled recommender, obedience, best-CE LPs, obedience reward, who gains, bad-day information design
+  game.py         slot game: fluid queue, Nash / large-crowd (Wardrop) / optimum solvers, price of anarchy,
+                  random-arrival queue check, slot booking
+  correlated.py   shuffled recommender, obedience, best-CE LPs, obedience reward, who gains, bad-day information design,
+                  the best-response-face search (queue lemma + column generation)
+  smallcrowd.py   small crowds of identical people solved exactly: best CE, pure and mixed Nash, bad days, privacy
   simulate.py     day-to-day simulator: display policies, logit behaviour, Hedge / EXP3 / regret-matching learners
   domains.py      the same model for roads, networks, food courts, gyms and the mess
   mess.py         IITGN case study: scenario, synthetic QR-scan logs, calibration, forecasting
   viz.py          shared colours
 app.py            Streamlit lab (start here, small games, selfish vs planner, display, advice, mess, team)
-experiments.py    experiments E1-E7 -> results/ (figures + RESULTS.md) and docs/data.js
+experiments.py    experiments E1-E8 -> results/ (figures + RESULTS.md) and docs/data.js
 docs/             the website (GitHub Pages): index.html, style.css, app.js, data.js, img/
 tests/            tests for every quoted claim
 report/           LaTeX report on the PRIMEarxiv template (main.tex/pdf); draft1/ = the earlier draft

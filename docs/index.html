@@ -20,15 +20,15 @@
     </a>
     <nav class="tabs" aria-label="Pages">
       <a href="#overview" data-page="overview">Overview</a>
-      <a href="#problem" data-page="problem"><span class="n">1</span>The problem</a>
-      <a href="#games" data-page="games"><span class="n">2</span>Small games</a>
-      <a href="#display" data-page="display"><span class="n">3</span>Public display</a>
-      <a href="#advice" data-page="advice"><span class="n">4</span>Correlated advice</a>
-      <a href="#mess" data-page="mess"><span class="n">5</span>Mess case study</a>
+      <a href="#problem" data-page="problem">The problem</a>
+      <a href="#games" data-page="games">Small games</a>
+      <a href="#display" data-page="display">Public display</a>
+      <a href="#advice" data-page="advice">Correlated advice</a>
+      <a href="#mess" data-page="mess">Mess case study</a>
       <a href="#team" data-page="team">Team</a>
     </nav>
     <div class="actions">
-      <button class="btn primary" id="tourBtn">▶ Guided demo</button>
+      <button class="btn outline" id="tourBtn">▶ Guided demo</button>
       <button class="btn icon" id="themeBtn" aria-label="Switch light or dark">◐</button>
     </div>
   </div>
@@ -145,7 +145,7 @@
   </div>
   <div class="grid3 mt">
     <div class="card"><span class="pill ce">Result 1</span><h3>Shuffled Nash advice is a correlated equilibrium</h3><p>Every shuffle of a Nash schedule is itself a Nash equilibrium, so obeying is always a best response. Stable from day one; inconvenient slots rotate.</p></div>
-    <div class="card"><span class="pill ne">Result 2</span><h3>In a large crowd advice alone cannot beat Nash</h3><p>With complete information every correlated equilibrium of a large crowd costs exactly what Nash costs. Our linear program confirms it in all five facilities.</p></div>
+    <div class="card"><span class="pill ne">Result 2</span><h3>Small crowds: advice beats Nash. Large crowds: it cannot</h3><p>Solved exactly, ten identical people: the best correlated equilibrium closes 60% of the gap between Nash and the planner. The advantage fades as the crowd grows. For large crowds we prove the queue is monotone and search every remaining candidate: no correlated equilibrium beats Nash.</p></div>
     <div class="card"><span class="pill opt">Result 3</span><h3>A small reward reaches the optimum</h3><p>The correlated-equilibrium conditions give the smallest reward that makes the planner's schedule self-enforcing. Nobody ends up worse off than under selfish timing.</p></div>
   </div>
   <div class="grid2 mt">
@@ -153,7 +153,7 @@
     <div class="card" id="rewardCard"><h3>Reward needed vs time saved</h3><div class="legend"><span><i style="background:var(--gold)"></i>reward paid (average per person)</span><span><i style="background:var(--opt)"></i>time saved vs Nash</span></div><div class="chart" id="rewardChart"></div></div>
   </div>
   <div class="card mt"><h3>Result 2 in numbers: the best correlated equilibrium we can find</h3><div class="scroll"><table id="lpTable"></table></div>
-    <p class="tag">Linear program over the Nash schedule, the optimum and 20 schedules in between (large-crowd version, exact equilibria).</p></div>
+    <p class="tag">Linear program over the Nash schedule, the optimum and 20 schedules in between (large-crowd version, exact equilibria). The report also searches the whole best-response face with column generation: still no cheaper correlated equilibrium.</p></div>
   <h2 class="mt">When the operator knows something the crowd does not</h2>
   <p class="sub">Some days are bad: an accident closes a lane, a counter is short of staff. The operator knows, the crowd only knows that it happens 30% of the time. Should the operator tell everyone, tell nobody, give a vague hint, or advise people privately?</p>
   <div class="grid2" id="infoRow">

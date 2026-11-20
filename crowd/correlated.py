@@ -409,3 +409,139 @@ def information_design(game: SlotGame, bad_factor: float = 0.7, p_bad: float = 0
         exp_[k] = prior["normal"] * per[k]["normal"] + prior["bad"] * per[k]["bad"]
     return InfoDesign(prior, {k: float(exp_[k]) for k in order}, {k: per[k] for k in order}, q.tolist(), V.tolist(),
                       env.tolist(), hint, support, 60 * max(gaps), 60 * lp_tol, len(menu))
+
+
+# ============================================================================
+# Can ANY correlated equilibrium of a large crowd beat Nash? A search that is close to exhaustive.
+#
+# Lemma (the queue is monotone). For any two arrival profiles A, B (same total),
+#     <A - B, W(A) - W(B)>  >=  0.
+# Proof: in continuous time the queue is Q = phi + R with phi(u) = N(u) - mu u (arrivals minus
+# service) and R the cumulative idle time, which only grows while Q = 0 (Skorokhod reflection).
+# Then sum_t (A_t - B_t)(W_t(A) - W_t(B)) = (1/mu) int (a - b)(Q_A - Q_B) du
+#   = (1/mu) [ (Q_A(L) - Q_B(L))^2 / 2  -  int (Q_A - Q_B) dR_A  +  int (Q_A - Q_B) dR_B ],
+# and both integrals have the right sign because dR_A lives where Q_A = 0 (so Q_A - Q_B <= 0 there)
+# and dR_B where Q_B = 0. The queue is monotone but not strictly, so Proposition 2's argument gives:
+# every (coarse) correlated equilibrium only uses schedules that send each type to slots that are
+# already optimal for it at Nash -- the "best-response face". We then search that face:
+#   1. vertices of the face plus thousands of random splits, and the CE linear program over them;
+#   2. column generation: the LP's dual prices define a pricing problem whose solution is the face
+#      schedule that would lower the cost most; we add it and repeat;
+#   3. the obedience tolerance is shrunk tenfold twice. A real CE cheaper than Nash would keep its
+#      saving; numerical slack shrinks in proportion to the tolerance.
+# ============================================================================
+@dataclass
+class FaceCheck:
+    nash: float  # Nash (Wardrop) cost per person
+    cheapest_on_face: float  # cheapest schedule on the face (not necessarily obeyed)
+    face_dim: int  # dimension of the best-response face
+    menu: int  # schedules in the final LP
+    saving_sec: dict[float, float]  # obedience tolerance (minutes) -> best CE saving vs Nash (seconds per person)
+    cg_rounds: int
+
+
+def best_response_face(game: SlotGame, x: np.ndarray, eps: float = 1e-3) -> np.ndarray:
+    """(K, T) mask of the slots that are (eps-)optimal for each type at schedule x."""
+    C = game.costs(x)
+    return C <= C.min(axis=1, keepdims=True) + eps
+
+
+def _face_project(v: np.ndarray, mask: np.ndarray, z: np.ndarray) -> np.ndarray:
+    out = np.zeros_like(v)
+    for k in range(v.shape[0]):
+        idx = np.flatnonzero(mask[k])
+        u = np.sort(v[k, idx])[::-1]
+        css = np.cumsum(u) - z[k]
+        rho = np.nonzero(u - css / np.arange(1, len(u) + 1) > 0)[0][-1]
+        out[k, idx] = np.maximum(v[k, idx] - css[rho] / (rho + 1), 0.0)
+    return out
+
+
+def _pricing(game: SlotGame, x: np.ndarray, lam: np.ndarray, tol: float) -> tuple[float, np.ndarray]:
+    """Value and gradient of  SC(x) + sum lam[k,t,t'] x[k,t] (C[k,t] - C[k,t'] - tol)  (the reduced cost + const)."""
+    cm, S = game.congestion, game.schedule_cost
+    A = x.sum(0)
+    W = cm.wait(A)
+    C = W[None, :] + S
+    lout = lam.sum(2)
+    H = lout * C - np.einsum("ktu,ku->kt", lam, C) - tol * lout
+    E = np.eye(game.T) * 1e-3
+    J = ((cm.wait(A[None, :] + E) - cm.wait(np.maximum(A[None, :] - E, 0))) / 2e-3).T  # J[t1, t] = dW_t1/dA_t
+    u, v = (x * lout).sum(0), np.einsum("kt,ktu->u", x, lam)
+    return float((x * (C + H)).sum()), (W + J.T @ A + J.T @ (u - v))[None, :] + S + H
+
+
+def _ce_master(game: SlotGame, menu: list[np.ndarray], tol: float):
+    T = game.T
+    off = ~np.eye(T, dtype=bool)
+    cols, costs = [], []
+    for x in menu:
+        C = game.costs(x)
+        cols.append((np.asarray(x)[:, :, None] * (C[:, :, None] - C[:, None, :] - tol))[:, off].ravel())
+        costs.append(game.social_cost(x))
+    A_ub = np.stack(cols, axis=1)
+    res = linprog(np.array(costs), A_ub=A_ub, b_ub=np.zeros(A_ub.shape[0]), A_eq=np.ones((1, len(menu))),
+                  b_eq=[1.0], bounds=[(0, None)] * len(menu), method="highs")
+    lam = np.zeros((game.K, T, T))
+    lam[:, off] = (-res.ineqlin.marginals).reshape(game.K, -1)
+    return float(res.fun), res.x, lam, float(res.eqlin.marginals[0])
+
+
+def face_ce_check(game: SlotGame, n_samples: int = 3000, cg_rounds: int = 15, tols=(1e-4, 1e-5, 1e-6),
+                  seed: int = 0) -> FaceCheck:
+    rng = np.random.default_rng(seed)
+    x, _ = large_crowd_equilibrium(game, tol=1e-7, iters=40000)
+    mask = best_response_face(game, x)
+    z = game.counts.astype(float)
+    multi = [k for k in range(game.K) if mask[k].sum() > 1]
+    menu = [x]
+    for k in multi:  # vertices: one type moves entirely to one of its optimal slots
+        for t in np.flatnonzero(mask[k]):
+            y = x.copy()
+            y[k] = 0
+            y[k, t] = z[k]
+            menu.append(y)
+
+    def random_face_point():
+        y = x.copy()
+        conc = rng.choice([0.1, 0.5, 1.0, 5.0])
+        for k in multi:
+            if rng.random() < 0.7:
+                idx = np.flatnonzero(mask[k])
+                y[k] = 0
+                y[k, idx] = rng.dirichlet(np.full(len(idx), conc)) * z[k]
+        return y
+
+    menu += [random_face_point() for _ in range(n_samples)]
+    tol0 = tols[0]
+    nash = game.social_cost(x)
+    for _ in range(cg_rounds):  # column generation on the face
+        cost, p, lam, v0 = _ce_master(game, menu, tol0)
+        starts = [menu[j] for j in np.flatnonzero(p > 1e-9)] + [random_face_point() for _ in range(8)]
+        best_rc, best_x = 0.0, None
+        for y in starts:
+            y = _face_project(np.asarray(y, float), mask, z)
+            F, G = _pricing(game, y, lam, tol0)
+            step = 0.02 * game.n / max(np.abs(G).max(), 1e-9)
+            for _ in range(200):
+                while True:
+                    y2 = _face_project(y - step * G, mask, z)
+                    F2, G2 = _pricing(game, y2, lam, tol0)
+                    if F2 <= F - 1e-4 * (G * (y - y2)).sum() or step < 1e-14:
+                        break
+                    step *= 0.5
+                done = F - F2 < 1e-12 * abs(F)
+                y, F, G, step = y2, F2, G2, step * 1.5
+                if done:
+                    break
+            if F - v0 < best_rc:
+                best_rc, best_x = F - v0, y
+        if best_x is None or best_rc > -1e-9 * nash:
+            break
+        menu.append(best_x)
+    saving = {}
+    for tol in tols:
+        cost, *_ = _ce_master(game, menu, tol)
+        saving[tol] = 60 * (nash - cost) / game.n
+    cheapest = min(game.social_cost(m) for m in menu) / game.n
+    return FaceCheck(nash / game.n, cheapest, int((mask.sum(1) - 1).sum()), len(menu), saving, cg_rounds)

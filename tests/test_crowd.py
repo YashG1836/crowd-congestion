@@ -5,16 +5,17 @@
 import numpy as np
 import pytest
 
-from crowd.correlated import (best_ce, information_design, interpolated_schedules, large_crowd_check, obedience,
-                              obedience_incentive, recommend, who_gains)
+from crowd.correlated import (best_ce, face_ce_check, information_design, interpolated_schedules, large_crowd_check,
+                              obedience, obedience_incentive, recommend, who_gains)
 from crowd.domains import DOMAINS, build
-from crowd.game import (Affine, Expected, FluidQueue, SlotGame, benchmarks, continuous_optimum, large_crowd_equilibrium,
-                        local_search, wardrop_equilibrium, wardrop_gap)
+from crowd.game import (Affine, Expected, FluidQueue, SlotGame, benchmarks, booking, continuous_optimum,
+                        large_crowd_equilibrium, local_search, random_queue_waits, wardrop_equilibrium, wardrop_gap)
 from crowd.mess import (MEALS, MESSES, arrival_heatmap, estimate_preferred_slots, estimate_service_rate, generate,
                         make_roster, meal_instance, nowcast_errors, preference_accuracy, roster_truth,
                         scans_per_slot)
 from crowd.simulate import (EXP3, Coarse, Forecast, Hedge, Live, Logit, Noisy, NoInfo, Partial, Recommend,
                             RegretMatching, jain_index, simulate)
+from crowd.smallcrowd import SmallCrowd, full_profile_ce, large_crowd_bad_day, small_bad_day
 from crowd.theory import (critical_responsiveness, dinner_game, hedge, intersection_game, numeric_boundary,
                           pigou_numeric, pigou_poa, regret_matching, shared_counter_dynamics, three_student_game)
 
@@ -427,3 +428,79 @@ def test_reward_leaves_nobody_worse_than_nash(dinner):
     w = who_gains(inst.game, b.best_nash.X, b.optimum.X)
     assert w.worse_off("with_reward") == 0
     assert (w.with_reward * inst.game.counts).sum() <= (w.nash * inst.game.counts).sum()
+
+
+# ############################################################################
+# Model checks, exact small crowds, and the search for a CE that beats Nash
+# ############################################################################
+def test_queue_is_monotone(dinner):
+    """Lemma 1: <A - B, W(A) - W(B)> >= 0 for any two arrival profiles."""
+    inst, _ = dinner
+    cm, n, T = inst.game.congestion, inst.game.n, inst.game.T
+    rng = np.random.default_rng(0)
+    for _ in range(3000):
+        A = rng.dirichlet(np.ones(T) * rng.uniform(0.2, 3)) * n
+        B = rng.dirichlet(np.ones(T) * rng.uniform(0.2, 3)) * n
+        assert (A - B) @ (cm.wait(A) - cm.wait(B)) >= -1e-9
+
+
+def test_small_crowd_reduction_matches_full_lp():
+    for n in (3, 4, 5):
+        c = SmallCrowd(n)
+        assert c.best_ce()[0] == pytest.approx(full_profile_ce(c), abs=1e-9)
+
+
+def test_small_crowd_ce_beats_every_pure_nash_at_ten():
+    c = SmallCrowd(10)
+    ce, p = c.best_ce()
+    opt, _ = c.optimum()
+    best_ne = c.social()[c.pure_nash()].min()
+    assert opt - 1e-9 <= ce < best_ne - 0.5  # 1.56 against 2.12 (planner 1.20)
+    mixed, q = c.mixed_nash(grid=60)
+    assert q.sum() == pytest.approx(1.0) and mixed >= ce - 1e-9  # a mixed equilibrium is also a CE
+
+
+def test_small_bad_day_ordering_and_limit():
+    r = small_bad_day(8, bad_factor=0.6)
+    assert r.private <= r.best_hint + 1e-9 <= min(r.tell_nobody, r.announce) + 2e-9
+    lim = large_crowd_bad_day(0.6, grid=40, n_beliefs=11)
+    assert lim.private <= lim.best_hint + 1e-9 <= min(lim.tell_nobody, lim.announce) + 2e-9
+
+
+def test_random_queue_matches_fluid_when_overloaded():
+    cm = FluidQueue(service_rate=5, T=3, slot_minutes=10)
+    A = np.array([150, 0, 0])  # three times the slot's capacity: randomness hardly matters
+    assert random_queue_waits(cm, A, runs=200)[0] == pytest.approx(cm.wait(A.astype(float))[0], rel=0.03)
+    light = random_queue_waits(cm, np.array([20, 20, 20]), runs=200)
+    assert (light > 0).all() and (cm.wait(np.array([20.0, 20, 20])) == 0).all()  # random arrivals wait a little
+
+
+def test_booking_respects_capacity(dinner):
+    inst, b = dinner
+    g = inst.game
+    X = booking(g, 1.0, seed=1)
+    assert (X.sum(axis=1) == g.counts).all() and (g.loads(X) <= g.congestion.capacity).all()
+    assert g.breakdown(X)["wait_per_person"] == pytest.approx(0.0, abs=1e-9)
+    assert b.optimum.social_cost <= g.social_cost(X) < b.nash.social_cost
+
+
+def test_face_search_finds_no_ce_cheaper_than_nash():
+    r = face_ce_check(build(DOMAINS["gym"]).game, n_samples=300, cg_rounds=3)
+    s = r.saving_sec
+    assert max(s.values()) < 0.05  # seconds per person
+    assert s[1e-6] < s[1e-4] / 50  # the saving is numerical slack: it shrinks with the tolerance
+    assert r.cheapest_on_face < 0.5 * r.nash  # ... although the face holds far cheaper schedules
+
+
+def test_noisy_users_follow_better_with_a_margin():
+    inst = build(DOMAINS["gym"])
+    g = inst.game
+    b = benchmarks(g)
+    G = obedience(g, b.optimum.X).gain_by_cell
+    D = g.deviation_costs(b.optimum.X)
+    cost = {}
+    for m in (0.0, 2.0):
+        pol = Recommend(target=b.optimum.X, type_of=inst.type_of, noise=3.0, alt_costs=D, bonus=G, margin=m)
+        cost[m] = np.mean([simulate(g.congestion, inst.tau, inst.beta, pol, Logit(3.0, 0.3), days=60, burn_in=20,
+                                    seed=s).metrics["mean_cost"] for s in range(3)])
+    assert cost[2.0] < 0.5 * cost[0.0]

@@ -161,6 +161,11 @@ class Recommend(Policy):
     rotate       True (default): a new shuffle every day, so inconvenient slots
                  rotate among similar people. False: the first day's assignment
                  is kept for ever (used to measure fairness).
+    noise        if set (a logit rationality lambda), app users are noisy instead of
+                 rational: told slot r, a user picks slot t with probability
+                 proportional to exp(-noise * (alt_costs[k, r, t] - bonus on r)), where
+                 alt_costs[k, r, t] is what t would cost them if everyone else obeyed.
+    margin       extra reward (minutes) on top of `bonus` for every app user who obeys.
     """
 
     target: np.ndarray = None
@@ -174,6 +179,9 @@ class Recommend(Policy):
     fallback: Policy = field(default_factory=NoInfo)
     name: str = "pi7 CE recommendation"
     rotate: bool = True
+    noise: float | None = None
+    alt_costs: np.ndarray | None = None  # (K, T, T) cost of each slot for a type-k person told r, others obeying
+    margin: float = 0.0
 
     def setup(self, n, T, rng):
         super().setup(n, T, rng)
@@ -189,6 +197,13 @@ class Recommend(Policy):
             self._fixed = recommend(rng, self.type_of, self.target)
         rec = self._fixed
         follow = self.users.copy()
+        if self.noise is not None and self.alt_costs is not None:  # noisy (logit) app users
+            k = self.type_of
+            c = self.alt_costs[k, rec, :].copy()  # (n, T)
+            reward = (self.bonus[k, rec] if self.bonus is not None else 0.0) + self.margin
+            c[np.arange(len(rec)), rec] -= reward
+            z = -self.noise * (c - c.min(axis=1, keepdims=True)) + rng.gumbel(size=c.shape)
+            return np.where(follow, np.argmax(z, axis=1), rec), follow
         if self.rational and self.gains is not None:
             k = self.type_of
             net = self.gains - (self.bonus if self.bonus is not None else 0.0)

@@ -69,6 +69,16 @@ Hedge (no external regret) to the **CCE** set. A mediator gets there on day one.
 
 (Pigou's two roads, PoA 4/3 for linear costs, is kept as a check of the solvers and on the website.)
 
+**Small crowds, solved exactly (`smallcrowd.py`).** With n identical people the CE linear program over all T^n profiles
+is unnecessary: relabelling who is who maps a CE to a CE of the same cost, and averaging over all relabellings gives a
+CE of the form "draw a head-count per slot, then shuffle". So an LP over head-counts (1,891 of them for 60 people and
+3 slots) gives the exact best CE; it matches the full LP for n ≤ 6 (tested). Setup: three 10-minute slots, everyone
+prefers the middle one (β = 2), and the counter's speed grows with n so the crowd always needs 80% of its capacity.
+Result: the best CE beats every pure Nash equilibrium in 52 of the 56 sizes that have one; at 10 people it closes 60%
+of the gap (1.56 vs 2.12, planner 1.20) by mixing 4/5/1 (99%) with a rare 8/0/2 that makes "late" worth obeying; at 60
+people only 1% of the gap. No pure NE exists at 7, 9, 11 people. The same LP with two states gives the exact Bayes CE
+of a bad day, and a lattice version gives its large-crowd limit.
+
 ---
 
 ## 3. The slot-congestion game (`game.py`)
@@ -121,7 +131,18 @@ numerically with two LPs:
   obedience `Σ_j p_j X_j[k,t] (C_j[k,t] − D_j[k,t,t'] − ε) ≤ 0`.
 * `large_crowd_ce` / `large_crowd_check`: large-crowd game, exact equilibria, the same menu idea.
 
-In all five facilities the best CE costs exactly the Nash cost.
+In all five facilities the best CE over these menus costs exactly the Nash cost.
+
+**Lemma (the queue is monotone).** For any two arrival profiles A, B with the same total,
+Σ_t (A_t − B_t)(W_t(A) − W_t(B)) ≥ 0. Proof: in continuous time Q = N − μu + R, where R (idle time) grows only while
+Q = 0; then (1/μ)∫(a − b)(Q_A − Q_B)du = (1/μ)[½(Q_A − Q_B)²|end − ∫(Q_A − Q_B)dR_A + ∫(Q_A − Q_B)dR_B] ≥ 0 because
+dR_A lives where Q_A = 0 and dR_B where Q_B = 0. Checked on 100,000 random pairs (tested). The queue is monotone but
+not strictly, so Proposition 2's proof shows only that every CCE/CE of the large crowd lives on the **best-response
+face** (each type only in slots that are optimal for it at Nash; 3–32 dimensions here). `face_ce_check` searches it:
+the CE LP over all vertices and 3,000 random face points, then 15 rounds of column generation (the LP's duals define
+a pricing problem over the face, solved by projected gradient from many starts), at three obedience tolerances. The
+best CE saves at most 0.03 s per person and the saving shrinks tenfold with each tenfold smaller tolerance: numerical
+slack, not a better equilibrium.
 
 **Proposition 3 (price of obedience).** For a schedule X let G[k,t] be the most that a type-k person told t can
 gain by moving alone. A reward G[k,t] for showing up in the recommended slot makes the shuffled X a CE of the
@@ -147,6 +168,11 @@ x_q of the expected costs, and `V(q) = (1−q) SC_normal(x_q) + q SC_bad(x_q)`.
 Every public outcome is a Bayes CE, so private ≤ best hint ≤ min(silence, announce) (tested). Every equilibrium
 used is accurate to 5 s or better, and the LP tolerance is at least that accuracy.
 
+**How bad and how often.** The comparison is repeated for bad-day capacity 50%, 60%, 70%, 85% (probability 0.3) and
+probability 0.1, 0.3, 0.5 (capacity 70%). **When privacy pays** is measured exactly in small crowds (`small_bad_day`:
+a public hint is followed by the best CE of the belief it creates; private advice is the best Bayes CE) and in their
+large-crowd limit (`large_crowd_bad_day`: a lattice of splits plus the exact equilibrium of every belief).
+
 ---
 
 ## 6. The day-to-day simulator (`simulate.py`)
@@ -163,12 +189,21 @@ The same people choose a slot every day (150 days, first 50 discarded, 30 seeds,
 | CE advice + reward | the optimum plus the reward of Prop. 3 |
 
 App users are **rational**: they disobey whenever disobeying saves more than 6 seconds (or the schedule's own
-accuracy). Behaviour: logit choice with habit, `Logit(λ, revise)`; three crowds: calm (λ=3, 30% reconsider
+accuracy). Or **noisy** (`Recommend(noise=λ)`): told r, a user picks t with probability ∝ exp(−λ c(t)), where c(t) is
+what t would cost if everyone else obeyed (minus the reward, plus an optional margin). Behaviour: logit choice with habit, `Logit(λ, revise)`; three crowds: calm (λ=3, 30% reconsider
 daily), reactive (λ=3, everyone), noisy (λ=1, 30%). Learners: Hedge and regret matching (all waits
 published), EXP3 (own wait only). Metrics: mean cost, 90th-percentile wait, **swing** (share of people who
 change slot each day), swap regret (0 = a correlated equilibrium).
 
 ---
+
+## 6b. Model checks (`game.py`)
+
+* `random_queue_waits` / `random_queue_cost`: keep a schedule's head-counts but draw arrival times uniformly inside
+  each slot, serve people one at a time (deterministic or exponential service), and measure waits by simulation
+  (200 runs). With evenly spaced arrivals it reproduces the fluid queue to within one service time (checked).
+* The planner may keep a buffer: optimum of a counter 5–20% slower, evaluated with random arrivals.
+* `booking`: slots reserved one by one in random order, each person taking the free slot nearest their favourite.
 
 ## 7. The IITGN mess case study (`mess.py`)
 
@@ -198,14 +233,15 @@ next 30 minutes from tonight's scans so far: historical profile, or rescaled by 
 | | Question | Answer (numbers in RESULTS.md) |
 |---|---|---|
 | E1 | Small games: when does correlation help? | Dinner game: CE 2.5 = optimum vs mixed Nash 3.0 vs shared counter 3.5. Traffic light: CE 5.25 vs 4.67. Regret matching reaches the CE set. |
-| E2 | What does selfish timing cost? | PoA 3.3–8.0 in all five facilities; almost all of it is waiting. |
+| E2 | What does selfish timing cost? | PoA 3.3–8.0 in all five facilities; almost all of it is waiting. With random arrivals 1.3–3.2 (1.7–3.4 with a buffered planner); booking ≈ 2× the planner. |
 | E3 | What does a public display do? | Reactive crowd: 3.7–17× Nash, 75–89% switch daily. Display for 30%: 0.82–1.35×. CE advice: exactly Nash, no swing, every crowd. |
-| E4 | Correlated advice at scale | Best CE = Nash in every facility (atomic and large crowd). 50–90% app users stop the herding. Reward: 1 minute buys 2.4–6.9 minutes; nobody worse off. |
-| E5 | Who should be told what on bad days? | Announcing helps 16–49% except on the road (+20%); best hint = vague on the road; private advice adds ≤ 0.2%. |
+| E4 | Correlated advice at scale | Best CE = Nash in every facility (atomic menu; large crowd: face search with column generation). 50–90% app users stop the herding. Reward: 1 minute buys 2.4–6.9 minutes; nobody worse off. Noisy users: CE advice drifts from Nash; a 1–2 minute margin restores the optimum. |
+| E5 | Who should be told what on bad days? | Announcing helps 16–49% except on the road (+20%); best hint = vague on the road; private advice adds little in large crowds. On severe days announcing backfires in most facilities. |
 | E6 | Do learners find a CE? | Regret matching with published waits: 0.99–1.08× Nash (1.36× gym), swap regret ≤ 0.45 min; EXP3 keeps 2.7–9.0 min of regret. |
+| E8 | Small crowds solved exactly | Best CE beats every pure NE in 52/56 sizes (60% of the gap at 10 people), fading with n; privacy on bad days worth several % in small crowds. |
 | E7 | The IITGN mess | 393,747 scans; μ within 2–3%; 132 student-hours lost per normal day; Jaiswal dinner: display 11.55, CE 2.24, CE + reward 0.36; who gains; short-staffed evenings. |
 
-Figures go to `results/figures/fig1…fig8`, all numbers to `results/RESULTS.md`, and the website's data to
+Figures go to `results/figures/fig1…fig9`, all numbers to `results/RESULTS.md`, and the website's data to
 `docs/data.js`.
 
 ---
@@ -217,16 +253,17 @@ crowd-congestion/
 ├── crowd/                 the library
 │   ├── theory.py          small games: NE, CE/CCE LPs, Pigou, regret matching, Hedge
 │   ├── game.py            queue, SlotGame, Nash / large-crowd / optimum solvers, PoA
-│   ├── correlated.py      recommender, obedience, best-CE LPs, reward, who gains, information design
+│   ├── correlated.py      recommender, obedience, best-CE LPs, reward, who gains, information design, face search
+│   ├── smallcrowd.py      small crowds of identical people solved exactly (CE, Nash, bad days)
 │   ├── simulate.py        policies, behaviour, learners, simulator
 │   ├── domains.py         road, network, food court, gym, mess + synthetic populations
 │   ├── mess.py            IITGN scenario, synthetic scan logs, calibration, forecasting
 │   └── viz.py             one colour language for figures, the app and the website
 ├── app.py                 Streamlit lab (7 pages), https://crowd-congestion.streamlit.app/
 ├── docs/                  website (GitHub Pages; one page per step, guided demo), https://yashg1836.github.io/crowd-congestion/
-├── experiments.py         E1–E7 -> results/ and docs/data.js
+├── experiments.py         E1–E8 -> results/ and docs/data.js
 ├── results/               figures/*.png and RESULTS.md (generated)
-├── tests/test_crowd.py    58 checks of every claim
+├── tests/test_crowd.py    66 checks of every claim
 ├── report/                LaTeX report, PRIMEarxiv (main.tex -> main.pdf); draft1/ = earlier draft
 ├── DESIGN.md              this document
 └── README.md              tour, results, how to run
@@ -245,7 +282,9 @@ policies day by day → `experiments.py` / `app.py` / `docs/` report.
 * **Fluid queue.** Arrivals inside a slot are spread evenly, so a perfectly smoothed schedule has zero wait and
   the PoA is optimistic. We report minutes lost, not only ratios.
 * **Atomic, non-potential game.** We report ε-equilibria (≤ 7 s) and use exact large-crowd equilibria where it
-  matters (Proposition 2 check, bad days).
+  matters (Proposition 2 check, bad days). The face search is near-exhaustive, not a proof; the five-facility
+  private-advice LP uses a menu, so its gain is a lower bound. With random arrivals we re-evaluate schedules but do
+  not re-solve the equilibria.
 * **Behaviour models are assumptions.** Three crowds and three learners; we say which conclusions change.
 * **Bad days**: two states, one prior; rewards are minutes-equivalent transfers.
 
@@ -260,6 +299,6 @@ resources (library, laundry, shuttle); a second scan at the queue entrance to me
 | Member | Roll no. | Branch | Package | Files | Experiments |
 |---|---|---|---|---|---|
 | Harsh Kumar Jha | 24110130 | AI | Mess case study: scenario, synthetic scan logs, calibration, forecasting | `mess.py` | E7 |
-| Yash Goyal | 24110399 | CSE | Bad days and learning: large-crowd solver, information design, learners, statistics; website, lab, repository | `correlated.py`, `simulate.py`, `app.py`, `docs/` | E5, E6 |
-| Piyush Kumar Keshri | 24110260 | Chemical | Equilibria and correlated equilibrium: small games, solvers, PoA, CE LPs, recommender, Propositions 1–3, reward, who gains | `theory.py`, `game.py`, `correlated.py` | E1, E2, E4 |
-| Garv Singhal | 24110119 | CSE | Simulator and display policies: simulator, policies, behaviour, sweeps, delay and swing, the five facilities | `simulate.py`, `domains.py` | E3, E7 policies |
+| Yash Goyal | 24110399 | CSE | Bad days and learning: large-crowd solver, information design, sweeps, privacy in small crowds, learners, statistics; website, lab, repository | `correlated.py`, `smallcrowd.py`, `app.py`, `docs/` | E5, E6, E8 |
+| Piyush Kumar Keshri | 24110260 | Chemical | Equilibria and correlated equilibrium: small games, exact small crowds, solvers, PoA, CE LPs, recommender, Propositions 1–3, queue lemma and face search, reward, who gains | `theory.py`, `game.py`, `correlated.py`, `smallcrowd.py` | E1, E2, E4, E8 |
+| Garv Singhal | 24110119 | CSE | Simulator, displays and robustness: simulator, policies, behaviour, noisy app users, sweeps, delay and swing, random-queue check and booking, the five facilities | `simulate.py`, `domains.py`, `game.py` (checks) | E2, E3, E7 |

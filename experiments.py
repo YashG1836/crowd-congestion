@@ -10,6 +10,7 @@ General part (five shared facilities: road, network, restaurant, gym, mess):
     E4  CE advice        private recommendations: obedience, best-CE LP, how many must follow, rewards
     E5  uncertainty      who should be told what when the operator knows tonight's state
     E6  learning         students who learn from experience end near a correlated equilibrium
+    E8  small crowds     identical people solved exactly: when correlation beats Nash, and when privacy pays
 Case study:
     E7  the IITGN mess   synthetic QR-scan logs, calibration, every meal, the dinner day by day
 """
@@ -25,10 +26,12 @@ import numpy as np
 import pandas as pd
 
 from crowd import viz
-from crowd.correlated import (best_ce, information_design, interpolated_schedules, large_crowd_check, obedience,
-                              obedience_incentive, who_gains)
+from crowd.correlated import (best_ce, face_ce_check, information_design, interpolated_schedules, large_crowd_check,
+                              obedience, obedience_incentive, who_gains)
 from crowd.domains import DOMAINS, build
-from crowd.game import benchmarks
+from crowd.game import (FluidQueue, benchmarks, booking, continuous_optimum, local_search, random_queue_cost,
+                        round_schedule)
+from crowd.smallcrowd import SmallCrowd, crowd_shapes, full_profile_ce, large_crowd_bad_day, small_bad_day
 from crowd.mess import (MEALS, MESSES, arrival_heatmap, estimate_preferred_slots, estimate_service_rate, generate,
                         make_roster, meal_instance, nowcast_errors, preference_accuracy, roster_truth,
                         scans_per_slot)
@@ -42,6 +45,7 @@ OUT = ROOT / "results"
 FIG = OUT / "figures"
 SUMMARY: dict = {}
 SITE: dict = {}
+PER_SEED: dict = {}  # (domain, regime, policy) -> mean cost of every seed (for paired tests)
 
 REGIMES = {
     "calm": Logit(3.0, 0.3),       # 30% of people reconsider each day
@@ -191,30 +195,60 @@ def e2_selfish() -> None:
                      "service_rate": d.service_rate, "nash": ne["per_person"], "nash_wait": ne["wait_per_person"],
                      "opt": op["per_person"], "opt_wait": op["wait_per_person"], "poa": b.poa,
                      "eps_sec": 60 * b.epsilon})
-    SUMMARY["e2"] = {"domains": rows}
-    df = pd.DataFrame(rows)
-    fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.7), gridspec_kw={"width_ratios": [1, 1.25]})
-    ax = axes[0]
-    x = np.arange(len(df))
-    ax.bar(x - 0.2, df.nash, 0.38, color=viz.NE, label="selfish (Nash)")
-    ax.bar(x + 0.2, df.opt, 0.38, color=viz.OPT, label="planner (optimum)")
-    for xi, r in zip(x, rows):
-        ax.text(xi, r["nash"] * 1.12, f"{r['poa']:.1f}x", ha="center", fontsize=9, color=viz.TEXT_2)
-    ax.set_xticks(x, [SHORT[k] for k in df.domain])
-    plain_log(ax, "y", [0.3, 1, 3, 10, 30])
-    ax.set(title="Minutes lost per person, and the price of anarchy", ylabel="minutes per person (log)", ylim=(0.2, 40))
-    ax.legend(loc="upper right", fontsize=8.5)
+    # --- is the fluid queue too kind to the planner? Same schedules, random arrival times inside each slot
+    robust = []
+    for key in DOMAIN_ORDER:
+        inst, b, *_ = domain(key)
+        g = inst.game
+        ne, op = b.nash.X, b.optimum.X
+        r_ne, r_op = random_queue_cost(g, ne), random_queue_cost(g, op)
+        s_ne, s_op = random_queue_cost(g, ne, random_service=True), random_queue_cost(g, op, random_service=True)
+        tuned, factor = r_op, 1.0  # the planner plans for a slightly slower counter to leave a buffer
+        for f in (0.95, 0.9, 0.85, 0.8):
+            g2 = g.with_congestion(FluidQueue(g.congestion.service_rate * f, g.T, g.congestion.slot_minutes))
+            x = local_search(g2, round_schedule(g2, continuous_optimum(g2))).X
+            c = random_queue_cost(g, x)
+            if c < tuned:
+                tuned, factor = c, f
+        books = [booking(g, 1.0, seed) for seed in range(5)]
+        robust.append({"domain": key, "nash_fluid": g.social_cost(ne) / g.n, "opt_fluid": g.social_cost(op) / g.n,
+                       "nash_random": r_ne, "opt_random": r_op, "nash_random_service": s_ne,
+                       "opt_random_service": s_op, "opt_tuned": tuned, "tuned_factor": factor,
+                       "booking_fluid": float(np.mean([g.social_cost(x) / g.n for x in books])),
+                       "booking_random": float(np.mean([random_queue_cost(g, x, 100) for x in books]))})
+    SUMMARY["e2"] = {"domains": rows, "robust": robust}
+    fig_selfish()
+
+
+def fig_selfish() -> None:
+    """The commute under selfish timing and the planner, and the price of anarchy under three queue models."""
+    plt = viz.plt
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.6), gridspec_kw={"width_ratios": [1.1, 1]})
     inst, b, *_ = domain("road")
     g = inst.game
     xs = np.arange(g.T)
-    ax = axes[1]
+    ax = axes[0]
     ax.bar(xs - 0.2, g.loads(b.nash.X), 0.38, color=viz.NE, label="selfish (Nash)")
     ax.bar(xs + 0.2, g.loads(b.optimum.X), 0.38, color=viz.OPT, label="planner (optimum)")
     ax.axhline(g.congestion.capacity, color=viz.MUTED, ls="--", lw=1.2)
-    ax.text(g.T - 0.5, g.congestion.capacity + 6, "bridge capacity per slot", ha="right", color=viz.TEXT_2, fontsize=9)
+    ax.text(-0.45, g.congestion.capacity + 6, "bridge capacity per slot", ha="left", color=viz.TEXT_2, fontsize=9)
     ax.set_xticks(xs[::2], g.slot_labels[::2])
-    ax.set(title="Morning commute: cars arriving per 15 minutes", ylabel="cars")
-    ax.legend(loc="upper left", fontsize=8.5)
+    ax.set(title="Morning commute: cars arriving per 15 minutes", ylabel="cars", ylim=(0, 400))
+    ax.legend(loc="upper left", fontsize=8.5, ncol=2)
+    rob = pd.DataFrame(SUMMARY["e2"]["robust"])
+    ax = axes[1]
+    series = [("fluid queue (model)", rob.nash_fluid / rob.opt_fluid, viz.NE),
+              ("random arrivals", rob.nash_random / rob.opt_random, viz.SERIES[3]),
+              ("random arrivals and service", rob.nash_random_service / rob.opt_random_service, viz.MUTED),
+              ("random arrivals, planner keeps a buffer", rob.nash_random / rob.opt_tuned, viz.CE)]
+    w = 0.2
+    for j, (name, vals, col) in enumerate(series):
+        ax.bar(np.arange(len(rob)) + (j - 1.5) * w, vals, w * 0.92, color=col, label=name)
+    ax.axhline(1, color=viz.TEXT_2, lw=1)
+    ax.set_xticks(range(len(rob)), [SHORT[k] for k in rob.domain])
+    ax.set(title="Price of anarchy (selfish / planner) under three queue models", ylabel="price of anarchy")
+    ax.legend(fontsize=8, ncol=2, loc="upper left")
+    ax.set_ylim(0, 10)
     fig.tight_layout()
     save(fig, "fig2_selfish_vs_planner")
 
@@ -230,6 +264,7 @@ def e3_display(seeds: int) -> None:
         for regime in REGIMES:
             for name, pol in core_policies(setup).items():
                 ms = [run(inst, pol, regime, s).metrics for s in range(seeds)]
+                PER_SEED[(key, regime, name)] = [m["mean_cost"] for m in ms]
                 c, h = ci([m["mean_cost"] for m in ms])
                 rows.append({"domain": key, "regime": regime, "policy": name, "cost": c, "ci": h, "vs_nash": c / nash,
                              "swing": float(np.mean([m["swing"] for m in ms])),
@@ -243,8 +278,11 @@ def e3_display(seeds: int) -> None:
     for ax, regime in zip(axes, REGIMES):
         sub = df[df.regime == regime]
         for j, pol in enumerate(pols):
-            vals = [sub[(sub.domain == k) & (sub.policy == pol)].vs_nash.iloc[0] for k in DOMAIN_ORDER]
-            ax.bar(np.arange(5) + (j - 2.5) * w, vals, w * 0.92, color=POLICY_COLORS[pol], label=pol)
+            cells = [sub[(sub.domain == k) & (sub.policy == pol)].iloc[0] for k in DOMAIN_ORDER]
+            vals = [c.vs_nash for c in cells]
+            errs = [c.ci / c.cost * c.vs_nash for c in cells]  # 95% CI, same relative width
+            ax.bar(np.arange(5) + (j - 2.5) * w, vals, w * 0.92, color=POLICY_COLORS[pol], label=pol, yerr=errs,
+                   error_kw=dict(elinewidth=0.8, capsize=1.5, ecolor=viz.TEXT_2))
         ax.axhline(1, color=viz.TEXT_2, lw=1)
         ax.set_xticks(range(5), [SHORT[k] for k in DOMAIN_ORDER])
         ax.set_title({"calm": "Calm crowd (30% reconsider daily)", "reactive": "Reactive crowd (everyone reconsiders)",
@@ -287,13 +325,37 @@ def e4_ce(seeds: int) -> None:
                             tolerance=max(0.1, b.epsilon) + 1e-9)
             c, h = ci([run(inst, pol, "reactive", s).metrics["mean_cost"] for s in range(max(3, seeds // 3))])
             comp.append({"domain": key, "share": sh, "cost": c, "ci": h, "vs_nash": c / nash})
-    SUMMARY["e4"] = {"table": table, "compliance": comp}
+    # --- can ANY correlated equilibrium beat Nash in a large crowd? Search the best-response face
+    face = []
+    for key in DOMAIN_ORDER:
+        r = face_ce_check(domain(key)[0].game, n_samples=3000, cg_rounds=15)
+        face.append({"domain": key, "nash": r.nash, "cheapest_on_face": r.cheapest_on_face, "face_dim": r.face_dim,
+                     "menu": r.menu, **{f"saving_sec_tol_{60 * t:g}s": v for t, v in r.saving_sec.items()}})
+    # --- app users who are noisy (logit) instead of rational; a reward margin on top of Proposition 3
+    noisy = []
+    for key in DOMAIN_ORDER:
+        inst, b, ob_ne, ob_opt, *_ = domain(key)
+        g = inst.game
+        nash = b.best_nash.social_cost / g.n
+        D_ne, D_op = g.deviation_costs(b.best_nash.X), g.deviation_costs(b.optimum.X)
+        for lam in (3.0, 1.0):
+            pols = {"CE advice": Recommend(target=b.best_nash.X, type_of=inst.type_of, noise=lam, alt_costs=D_ne)}
+            for m in (0.0, 1.0, 2.0):
+                pols[f"CE advice + reward, margin {m:g}"] = Recommend(target=b.optimum.X, type_of=inst.type_of, noise=lam,
+                                                                      alt_costs=D_op, bonus=ob_opt.gain_by_cell, margin=m)
+            for name, pol in pols.items():
+                vals = [run(inst, pol, "calm", sd).metrics["mean_cost"] for sd in range(max(3, seeds // 3))]
+                PER_SEED[(key, f"noisy {lam:g}", name)] = vals
+                c, h = ci(vals)
+                noisy.append({"domain": key, "lambda": lam, "policy": name, "vs_nash": c / nash, "ci": h / nash})
+    SUMMARY["e4"] = {"table": table, "compliance": comp, "face": face, "noisy": noisy}
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.7))
     ax = axes[0]
     cdf = pd.DataFrame(comp)
     for key, col in zip(DOMAIN_ORDER, [viz.SERIES[0], viz.SERIES[1], viz.SERIES[2], viz.SERIES[3], viz.SERIES[6]]):
         sub = cdf[cdf.domain == key]
-        ax.plot(sub.share, sub.vs_nash, marker="o", ms=4.5, color=col, label=SHORT[key])
+        ax.errorbar(sub.share, sub.vs_nash, yerr=sub.ci / sub.cost * sub.vs_nash, marker="o", ms=4.5, color=col,
+                    label=SHORT[key], capsize=2, elinewidth=0.8)
     ax.axhline(1, color=viz.TEXT_2, lw=1)
     plain_log(ax, "y", [1, 2, 5, 10, 20])
     ax.set(title="Reactive crowd: share of people using private advice", xlabel="share using the app (others see the display)",
@@ -324,19 +386,38 @@ def e5_information() -> None:
         out[key] = {"expected": r.expected, "per_state": r.per_state, "hint": r.hint, "support": r.private_support,
                     "beliefs": r.beliefs, "value": r.value, "envelope": r.envelope, "max_gap_sec": r.max_gap_sec,
                     "tol_sec": r.tol_sec, "menu": r.menu_size, "bad_state": DOMAINS[key].bad_state}
+    # --- how bad, and how often? (fewer belief points: the sweep only needs the policies' costs)
+    sweep = []
+    for key in DOMAIN_ORDER:
+        g = domain(key)[0].game
+        settings = [(f, 0.3) for f in (0.5, 0.6, 0.85)] + [(0.7, p) for p in (0.1, 0.5)]
+        for f, p in settings:
+            r = information_design(g, bad_factor=f, p_bad=p, n_beliefs=11, steps=4)
+            sweep.append({"domain": key, "capacity": f, "p_bad": p, **r.expected, "max_gap_sec": r.max_gap_sec})
+        e = out[key]["expected"]
+        sweep.append({"domain": key, "capacity": 0.7, "p_bad": 0.3, **e, "max_gap_sec": out[key]["max_gap_sec"]})
     SUMMARY["e5"] = out
-    pols = ["tell nobody", "announce the state", "best public hint", "private advice"]
-    cols = [viz.MUTED, viz.NE, viz.SERIES[3], viz.CE]
-    fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.8), gridspec_kw={"width_ratios": [1.3, 1]})
+    SUMMARY["e5_sweep"] = sweep
+    fig_bad_days()
+
+
+def fig_bad_days() -> None:
+    """How bad a bad day must be for announcing to backfire, and the road's value of beliefs."""
+    plt = viz.plt
+    out = SUMMARY["e5"]
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.6), gridspec_kw={"width_ratios": [1, 1]})
     ax = axes[0]
-    w = 0.19
-    for j, (pol, c) in enumerate(zip(pols, cols)):
-        vals = [out[k]["expected"][pol] / out[k]["expected"]["tell nobody"] for k in DOMAIN_ORDER]
-        ax.bar(np.arange(5) + (j - 1.5) * w, vals, w * 0.92, color=c, label=pol)
+    sw = pd.DataFrame(SUMMARY["e5_sweep"])
+    sw = sw[np.isclose(sw.p_bad, 0.3)].sort_values("capacity")
+    for key, col in zip(DOMAIN_ORDER, [viz.SERIES[0], viz.SERIES[1], viz.SERIES[2], viz.SERIES[3], viz.SERIES[6]]):
+        sub = sw[sw.domain == key]
+        ax.plot(100 * sub.capacity, sub["announce the state"] / sub["tell nobody"], marker="o", ms=4.5, color=col,
+                label=SHORT[key])
     ax.axhline(1, color=viz.TEXT_2, lw=1)
-    ax.set_xticks(range(5), [SHORT[k] for k in DOMAIN_ORDER])
-    ax.set(title="Expected cost relative to telling nobody", ylabel="relative cost", ylim=(0, 1.42))
-    ax.legend(fontsize=8, ncol=2, loc="upper left")
+    ax.text(60.5, 1.02, "above the line: announcing backfires", fontsize=8.5, color=viz.TEXT_2)
+    ax.set(title="Announcing a bad day vs telling nobody (probability 0.3)", xlabel="capacity left on a bad day (%)",
+           ylabel="announce / tell nobody")
+    ax.legend(fontsize=8.5, ncol=2, loc="upper right")
     ax = axes[1]
     r = out["road"]
     q, V, E = np.array(r["beliefs"]), np.array(r["value"]), np.array(r["envelope"])
@@ -348,8 +429,8 @@ def e5_information() -> None:
     ax.scatter([p0], [r["expected"]["announce the state"]], color=viz.NE, s=40, zorder=3)
     ax.scatter([p0], [r["expected"]["best public hint"]], color=viz.SERIES[3], s=40, zorder=3)
     ax.axvline(p0, color=viz.GRID, lw=1)
-    ax.set(title="Road: cost as a function of the crowd's belief", xlabel="belief q that today is a bad day",
-           ylabel="expected minutes per car")
+    ax.set(title="Road (70% capacity): cost as a function of the crowd's belief",
+           xlabel="belief q that today is a bad day", ylabel="expected minutes per car")
     ax.legend(fontsize=8, loc="upper left")
     fig.tight_layout()
     save(fig, "fig5_uncertainty")
@@ -529,6 +610,130 @@ def e7_mess(seeds: int) -> None:
     save(fig, "fig8_mess_display")
 
 
+# =============================================================== E8 small crowds, solved exactly
+def e8_small_crowds() -> None:
+    plt = viz.plt
+    rows = []
+    for n in range(2, 61):
+        c = SmallCrowd(n)
+        soc = c.social()
+        ne = c.pure_nash()
+        ce, p = c.best_ce()
+        opt, _ = c.optimum()
+        mixed, q = c.mixed_nash(grid=120)
+        rows.append({"n": n, "pure_nash": int(len(ne)), "best_pure_nash": float(soc[ne].min()) if len(ne) else None,
+                     "best_ce": ce, "optimum": opt, "mixed_nash": mixed,
+                     "support": [(c.M[j].tolist(), float(p[j])) for j in np.argsort(-p)[:3] if p[j] > 1e-4]})
+    privacy = []
+    for f in (0.7, 0.5):
+        for n in (4, 6, 8, 10, 15, 20, 30, 40, 60, 80, 120):
+            r = small_bad_day(n, bad_factor=f)
+            privacy.append({"n": n, "capacity": f, "tell_nobody": r.tell_nobody, "announce": r.announce,
+                            "best_hint": r.best_hint, "private": r.private, "privacy_gain": r.privacy_gain})
+        r = large_crowd_bad_day(f, grid=120)
+        privacy.append({"n": "large", "capacity": f, "tell_nobody": r.tell_nobody, "announce": r.announce,
+                        "best_hint": r.best_hint, "private": r.private, "privacy_gain": r.privacy_gain})
+    SUMMARY["e8"] = {"crowds": rows, "privacy": privacy, "shapes": crowd_shapes()}
+
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.8), gridspec_kw={"width_ratios": [1.25, 1]})
+    df = pd.DataFrame(rows)
+    ax = axes[0]
+    ax.plot(df.n, df.mixed_nash, color=viz.MUTED, lw=1.6, label="mixed Nash (no coordination)")
+    ax.plot(df.n, df.best_pure_nash.astype(float), color=viz.NE, lw=1.6, marker="o", ms=3,
+            label="best pure Nash (gaps: none exists)")
+    ax.plot(df.n, df.best_ce, color=viz.CE, lw=2, marker="o", ms=3, label="best correlated equilibrium")
+    ax.plot(df.n, df.optimum, color=viz.OPT, lw=1.6, ls="--", label="planner")
+    ax.set(title="Identical people, 3 slots: every number exact", xlabel="crowd size n (same load at every n)",
+           ylabel="minutes per person", ylim=(0.9, 3.6))
+    ax.legend(fontsize=8.5, ncol=2, loc="upper right")
+    ax = axes[1]
+    pdf = pd.DataFrame([r for r in privacy if r["n"] != "large"])
+    for f, col in ((0.7, viz.CE), (0.5, viz.SERIES[4])):
+        sub = pdf[pdf.capacity == f]
+        ax.plot(sub.n, 100 * sub.privacy_gain, color=col, marker="o", ms=4, label=f"bad day at {f:.0%} capacity")
+        lim = [r for r in privacy if r["n"] == "large" and r["capacity"] == f][0]
+        ax.axhline(100 * lim["privacy_gain"], color=col, ls="--", lw=1)
+    ax.set_xscale("log")
+    ax.set_xticks([4, 10, 30, 120], ["4", "10", "30", "120"])
+    ax.set(title="Bad days: what private advice saves over the best public hint", xlabel="crowd size n (log)",
+           ylabel="saving (%)")
+    ax.text(4.2, 100 * [r for r in privacy if r["n"] == "large" and r["capacity"] == 0.5][0]["privacy_gain"] + 0.4,
+            "dashed: same game, large-crowd limit", fontsize=8, color=viz.TEXT_2)
+    ax.legend(fontsize=8.5)
+    fig.tight_layout()
+    save(fig, "fig9_small_crowds")
+
+
+# =============================================================== paired tests (reads PER_SEED)
+def paired_tests() -> None:
+    """Two-sided sign-flip permutation tests on paired per-seed differences, Holm-corrected within each family."""
+    rng = np.random.default_rng(11)
+
+    def signflip(d, draws=200_000):
+        d = np.asarray(d, dtype=float)
+        if np.allclose(d, 0):
+            return 1.0
+        signs = rng.choice([-1.0, 1.0], size=(draws, len(d)))
+        return float((np.abs((signs * d).mean(axis=1)) >= abs(d.mean()) - 1e-12).mean() + 1 / draws)
+
+    families = {
+        "public display worse than no information (reactive)": ("reactive", "public display", "no information"),
+        "display for 30% better than public display (reactive)": ("reactive", "display for 30%", "public display"),
+        "CE advice better than public display (reactive)": ("reactive", "CE advice", "public display"),
+        "reward margin 2 better than margin 0 (noisy users)": ("noisy 3", "CE advice + reward, margin 2",
+                                                              "CE advice + reward, margin 0"),
+    }
+    rows = []
+    for fam, (regime, a, b) in families.items():
+        res = []
+        for key in DOMAIN_ORDER:
+            d = np.array(PER_SEED[(key, regime, a)]) - np.array(PER_SEED[(key, regime, b)])
+            res.append((key, float(d.mean()), signflip(d), len(d)))
+        order = np.argsort([r[2] for r in res])
+        adj, running = np.empty(len(res)), 0.0
+        for rank, i in enumerate(order):  # Holm: step-down, monotone
+            running = max(running, min(1.0, (len(res) - rank) * res[i][2]))
+            adj[i] = running
+        for (key, diff, pval, n), pa in zip(res, adj):
+            rows.append({"family": fam, "domain": key, "mean_difference": diff, "p": pval, "p_holm": float(pa),
+                         "seeds": n})
+    SUMMARY["tests"] = rows
+
+
+# =============================================================== verification checks (for the report's table)
+def checks() -> None:
+    rng = np.random.default_rng(7)
+    mono = []
+    for key in DOMAIN_ORDER:
+        g = domain(key)[0].game
+        cm, n, T = g.congestion, g.n, g.T
+        worst = np.inf
+        for _ in range(20000):
+            A = rng.dirichlet(np.ones(T) * rng.uniform(0.2, 3)) * n
+            B = rng.dirichlet(np.ones(T) * rng.uniform(0.2, 3)) * n
+            worst = min(worst, float((A - B) @ (cm.wait(A) - cm.wait(B))))
+        mono.append(worst)
+    full = [abs(SmallCrowd(n).best_ce()[0] - full_profile_ce(SmallCrowd(n))) for n in (3, 4, 5, 6)]
+    # the random queue with evenly spaced arrivals must reproduce the fluid queue (to one service time)
+    g = domain("mess")[0].game
+    b = domain("mess")[1]
+    A = g.loads(b.nash.X)
+    even_gap = []
+    mu, dt = g.congestion.service_rate, g.congestion.slot_minutes
+    arr = np.concatenate([t * dt + (np.arange(a) + 0.5) * dt / a for t, a in enumerate(A) if a > 0])
+    lab = np.concatenate([np.full(a, t) for t, a in enumerate(A) if a > 0])
+    free, waits = 0.0, np.empty(len(arr))
+    for i, a in enumerate(arr):
+        start = max(a, free)
+        waits[i] = start - a
+        free = start + 1 / mu
+    sim = np.array([waits[lab == t].mean() if (lab == t).any() else 0.0 for t in range(g.T)])
+    even_gap = float(np.abs(sim - g.congestion.wait(A.astype(float)))[A > 0].max())
+    SUMMARY["checks"] = {"monotone_min": float(min(mono)), "monotone_samples": 20000 * len(DOMAIN_ORDER),
+                         "exact_vs_full_lp": float(max(full)), "even_arrivals_vs_fluid_min": even_gap,
+                         "service_time_min": 1 / mu}
+
+
 # =============================================================== website data
 REPO = "https://github.com/YashG1836/crowd-congestion"
 APP = "https://crowd-congestion.streamlit.app/"
@@ -617,7 +822,10 @@ def write_markdown() -> None:
           f"symmetric Nash outcome gives {e1['intersection']['best_symmetric_nash']:.2f}. Learning: regret matching ends "
           f"{e1['learning']['regret_matching_ce_gap']:.4f} from the CE set, Hedge {e1['learning']['hedge_cce_gap']:.4f} "
           "from the coarse-CE set.", ""]
-    L += ["## E2 Selfish timing vs the planner", "", md(pd.DataFrame(s["e2"]["domains"]).drop(columns=["title"])), ""]
+    L += ["## E2 Selfish timing vs the planner", "", md(pd.DataFrame(s["e2"]["domains"]).drop(columns=["title"])), "",
+          "Random arrival times inside each slot (same schedules; 200 simulated runs), a planner re-tuned for "
+          "randomness (optimum of a slower counter), and slot booking (random order, nearest free slot):", "",
+          md(pd.DataFrame(s["e2"]["robust"])), ""]
     e3 = pd.DataFrame(s["e3"])
     piv = e3.pivot_table(index=["regime", "policy"], columns="domain", values="vs_nash").reindex(columns=DOMAIN_ORDER)
     L += ["## E3 Public display: cost relative to Nash", "", piv.round(2).to_markdown(), "",
@@ -628,6 +836,11 @@ def write_markdown() -> None:
           "Compliance (reactive crowd, non-users see the display), cost relative to Nash:", "",
           pd.DataFrame(s["e4"]["compliance"]).pivot_table(index="share", columns="domain", values="vs_nash")
           .reindex(columns=DOMAIN_ORDER).round(2).to_markdown(), ""]
+    L += ["Best-response face check (large crowd): best CE saving over Nash, seconds per person, at three obedience "
+          "tolerances (3000 sampled face schedules + column generation):", "", md(pd.DataFrame(s["e4"]["face"]), 5), "",
+          "Noisy app users (logit lambda), cost relative to Nash (calm crowd for non-users):", "",
+          pd.DataFrame(s["e4"]["noisy"]).pivot_table(index=["lambda", "policy"], columns="domain", values="vs_nash")
+          .reindex(columns=DOMAIN_ORDER).round(2).to_markdown(), ""]
     L += ["## E5 Who should be told what (bad day: capacity 70%, probability 0.3; large-crowd limit)", ""]
     rows = []
     for k, v in s["e5"].items():
@@ -637,6 +850,12 @@ def write_markdown() -> None:
                      "tolerance (s)": round(v["tol_sec"], 2)})
     L += [md(pd.DataFrame(rows)), "", "Per-state costs (road):", "",
           pd.DataFrame(s["e5"]["road"]["per_state"]).round(2).to_markdown(), ""]
+    sw = pd.DataFrame(s["e5_sweep"])
+    sw["announce/silence"] = sw["announce the state"] / sw["tell nobody"]
+    sw["hint/silence"] = sw["best public hint"] / sw["tell nobody"]
+    sw["privacy gain %"] = 100 * (1 - sw["private advice"] / sw["best public hint"])
+    L += ["How bad and how often (11 belief points for the sweep):", "",
+          md(sw[["domain", "capacity", "p_bad", "announce/silence", "hint/silence", "privacy gain %", "max_gap_sec"]]), ""]
     L += ["## E6 Learning", "", md(pd.DataFrame(s["e6"])), ""]
     e7 = s["e7"]
     L += ["## E7 The IITGN mess", "",
@@ -651,6 +870,16 @@ def write_markdown() -> None:
           f"Worse off than Nash: optimum without reward {e7['worse_off']['optimum']} students (by at most "
           f"{e7['max_loss_sec']:.1f} s), with reward {e7['worse_off']['with_reward']}. Reward budget "
           f"{e7['budget_pp']:.2f} min per student.", "", "Nowcasting MAE (scans per slot):", "", md(pd.DataFrame(e7["nowcast"])), ""]
+    e8 = s["e8"]
+    cr = pd.DataFrame(e8["crowds"]).drop(columns=["support"])
+    L += ["## E8 Small crowds solved exactly (identical people, 3 slots, load 0.8)", "", md(cr), "",
+          "Support of the best CE at n = 10: " + str(next(r["support"] for r in e8["crowds"] if r["n"] == 10)), "",
+          "Bad days in small crowds (best public hint followed by the best CE of its belief):", "",
+          md(pd.DataFrame(e8["privacy"])), ""]
+    sh = pd.DataFrame(e8["shapes"])
+    L += ["Crowd shapes (exact):", "", md(sh), ""]
+    L += ["## Paired tests (sign-flip permutation, Holm within each family)", "", md(pd.DataFrame(s["tests"]), 5), ""]
+    L += ["## Verification checks", "", "```", json.dumps(s["checks"], indent=1), "```", ""]
     (OUT / "RESULTS.md").write_text("\n".join(L))
 
 
@@ -663,7 +892,9 @@ def main() -> None:
     steps = [("E1 small games", e1_small_games), ("E2 selfish timing", e2_selfish),
              ("E3 public display", lambda: e3_display(seeds)), ("E4 CE advice", lambda: e4_ce(seeds)),
              ("E5 uncertainty", e5_information), ("E6 learning", lambda: e6_learning(seeds)),
-             ("E7 the mess", lambda: e7_mess(seeds)), ("website data", export_site)]
+             ("E7 the mess", lambda: e7_mess(seeds)), ("E8 small crowds", e8_small_crowds), ("paired tests", paired_tests),
+             ("checks", checks),
+             ("website data", export_site)]
     for name, fn in steps:
         t0 = time.time()
         fn()

@@ -116,10 +116,10 @@ function drawOverview() {
   // smallest share of app users at which each facility is back within 10% of Nash
   const enough = ORDER.map(k => Math.min(...S.e4.compliance.filter(r => r.domain === k && r.vs_nash <= 1.1).map(r => r.share)));
   $("findings").innerHTML = [
-    `<b>Selfish timing is costly everywhere.</b> The Nash equilibrium costs ${fmt(poaMin, 1)}–${fmt(poaMax, 1)} times the planner's schedule in all five facilities.`,
+    `<b>Selfish timing is costly everywhere.</b> The Nash equilibrium costs ${fmt(poaMin, 1)}–${fmt(poaMax, 1)} times the planner's schedule in all five facilities (less, but still a lot, when arrivals are random).`,
     `<b>A shared display can multiply the cost.</b> With a reactive crowd it costs ${fmt(Math.min(...herd), 1)}–${fmt(Math.max(...herd), 0)} times Nash; showing it to only 30% of people removes most of the damage.`,
     `<b>Private advice is a correlated equilibrium.</b> Everyone obeys and nothing swings. Once ${fmt(Math.min(...enough) * 100, 0)}–${fmt(Math.max(...enough) * 100, 0)}% of people use the app, the herding of the others stops too.`,
-    `<b>In a large crowd, correlation alone cannot beat Nash.</b> Our linear program finds no cheaper correlated equilibrium in any facility. Under uncertainty, what you announce matters far more than whether advice is private (road: announcing an accident costs ${fmt(road["announce the state"] / road["tell nobody"] * 100 - 100, 0)}% more than silence; a vague hint is best).`,
+    `<b>Correlation beats Nash in small crowds, not in large ones.</b> Ten people solved exactly: the best correlated equilibrium closes 60% of the gap to the planner; in a large crowd we find no correlated equilibrium cheaper than Nash. Under uncertainty, what you announce matters far more than whether advice is private (road: announcing an accident costs ${fmt(road["announce the state"] / road["tell nobody"] * 100 - 100, 0)}% more than silence; a vague hint is best).`,
     `<b>A small reward reaches the optimum.</b> The reward the CE conditions require is a fraction of the time saved, and nobody ends up worse off than under selfish timing.`,
   ].map(s => `<li>${s}</li>`).join("");
 }
