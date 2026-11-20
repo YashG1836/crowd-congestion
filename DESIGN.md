@@ -298,7 +298,7 @@ resources (library, laundry, shuttle); a second scan at the queue entrance to me
 
 | Member | Roll no. | Branch | Package | Files | Experiments |
 |---|---|---|---|---|---|
-| Harsh Kumar Jha | 24110130 | AI | Mess case study: scenario, synthetic scan logs, calibration, forecasting | `mess.py` | E7 |
-| Yash Goyal | 24110399 | CSE | Bad days and learning: large-crowd solver, information design, sweeps, privacy in small crowds, learners, statistics; website, lab, repository | `correlated.py`, `smallcrowd.py`, `app.py`, `docs/` | E5, E6, E8 |
-| Piyush Kumar Keshri | 24110260 | Chemical | Equilibria and correlated equilibrium: small games, exact small crowds, solvers, PoA, CE LPs, recommender, Propositions 1–3, queue lemma and face search, reward, who gains | `theory.py`, `game.py`, `correlated.py`, `smallcrowd.py` | E1, E2, E4, E8 |
-| Garv Singhal | 24110119 | CSE | Simulator, displays and robustness: simulator, policies, behaviour, noisy app users, sweeps, delay and swing, random-queue check and booking, the five facilities | `simulate.py`, `domains.py`, `game.py` (checks) | E2, E3, E7 |
+| Harsh Kumar Jha | 24110130 | AI | Mess case study (scenario, synthetic scan logs, calibration, forecasting); small crowds solved exactly, noisy app users, random-arrival robustness, bad-day sweeps, paired tests and verification checks | `mess.py`, `smallcrowd.py` | E7, E8 |
+| Yash Goyal | 24110399 | CSE | Bad days and learning: large-crowd solver, information design, Bayes-CE programs, learners; website, lab, repository | `correlated.py`, `app.py`, `docs/` | E5, E6 |
+| Piyush Kumar Keshri | 24110260 | Chemical | Equilibria and correlated equilibrium: small games, solvers, PoA, CE LPs, recommender, Propositions 1–3, queue lemma and face search, reward, who gains | `theory.py`, `game.py`, `correlated.py` | E1, E2, E4 |
+| Garv Singhal | 24110119 | CSE | Simulator and displays: simulator, policies, behaviour, sweeps, delay and swing, booking baseline, the five facilities | `simulate.py`, `domains.py` | E3, E7 |
