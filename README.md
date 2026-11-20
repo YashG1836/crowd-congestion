@@ -4,7 +4,7 @@
 
 | | |
 |---|---|
-| 📄 **Final report** (8 pages) | [report/main.pdf](report/main.pdf) · LaTeX source: [report/main.tex](report/main.tex) · earlier draft: [report/draft1/main.pdf](report/draft1/main.pdf) |
+| 📄 **Final report** (10 pages) | [report/main.pdf](report/main.pdf) · LaTeX source: [report/main.tex](report/main.tex) · earlier draft: [report/draft1/main.pdf](report/draft1/main.pdf) |
 | 🌐 **Website** (one page per step, with a guided demo) | **https://yashg1836.github.io/crowd-congestion/** |
 | 🧪 **Interactive lab** (run every experiment) | **https://crowd-congestion.streamlit.app/** |
 | 🧭 **Design** (model, proofs, experiments) | [DESIGN.md](DESIGN.md) |
@@ -47,23 +47,27 @@ The output of the test suite and of the full experiment run that produced every 
 tables** (`report/generated/numbers.tex` has one LaTeX macro per number quoted in the text; `report/generated/tab_*.tex`
 are the tables). So `python experiments.py && cd report && tectonic main.tex` rebuilds `report/main.pdf` exactly.
 
-| In the report | Experiment (function in `experiments.py`) | File written |
+| In the report | Produced by | File |
 |---|---|---|
-| Table 1, Fig. 1 (selfish timing, random-arrival robustness, booking) | E2 `e2_selfish` | `report/generated/tab_domains.tex`, `results/figures/fig2_selfish_vs_planner.png` |
-| Fig. 2 (public display, 5 facilities × 3 crowds, paired tests) | E3 `e3_display`, `paired_tests` | `results/figures/fig3_public_display.png` |
-| Fig. 3 (small crowds solved exactly; privacy on bad days) | E8 `e8_small_crowds` | `results/figures/fig9_small_crowds.png` |
-| Table 2 (can any CE beat Nash? face search) | E4 `e4_ce` | `report/generated/tab_ce.tex` |
-| Table 3 (price of obedience, noisy users) | E4 `e4_ce` | `report/generated/tab_advice.tex` |
-| Table 4, Fig. 4 (bad days: who should be told what) | E5 `e5_information` | `report/generated/tab_bad.tex`, `results/figures/fig5_uncertainty.png` |
-| Table 5, Fig. 5 (mess data and calibration) | E7 `e7_mess` | `report/generated/tab_data.tex`, `results/figures/fig6_mess_data.png` |
-| Two-player games, learning | E1 `e1_small_games`, E6 `e6_learning` | `results/RESULTS.md` |
-| Verification checks (Section 3.4) | `checks` | `report/generated/numbers.tex` |
-| Every number quoted in the text | all of the above | `report/generated/numbers.tex`, `results/RESULTS.md` |
+| Fig. 1 (photo strip) | Wikimedia Commons photos (credits below) | `docs/img/*.jpg` |
+| Fig. 2 (the story), Algorithm 1 | drawn in `report/main.tex`; every number in it is a generated macro | `report/generated/numbers.tex` |
+| Table 1 (five facilities, selfish vs planner, random arrivals) | E2 `e2_selfish` | `report/generated/tab_domains.tex` |
+| Fig. 3 (website and lab) | screenshots of the website and the lab (links above) | `report/screenshots_pair.png` |
+| Fig. 4 (morning commute; price of anarchy under three queue models) | E2 `e2_selfish` | `results/figures/fig2_selfish_vs_planner.png` |
+| Fig. 5 (public display, 5 facilities × 3 crowds) and the paired tests | E3 `e3_display`, `paired_tests` | `results/figures/fig3_public_display.png` |
+| Fig. 6 (small crowds solved exactly; privacy on bad days) | E8 `e8_small_crowds` | `results/figures/fig9_small_crowds.png` |
+| Table 2 (other crowd shapes) | E8 `e8_small_crowds` | `report/generated/tab_shapes.tex` |
+| Table 3 (can any CE beat Nash? the best-response-face search) | E4 `e4_ce` | `report/generated/tab_ce.tex` |
+| Table 4 (price of obedience; noisy users) | E4 `e4_ce` | `report/generated/tab_advice.tex` |
+| Table 5, Fig. 7 (bad days: who should be told what) | E5 `e5_information` | `report/generated/tab_bad.tex`, `results/figures/fig5_uncertainty.png` |
+| Fig. 8, Table 6 (mess data and calibration) | E7 `e7_mess` | `results/figures/fig6_mess_data.png`, `report/generated/tab_data.tex` |
+| Fig. 9 (Jaiswal dinner, day by day) | E7 `e7_mess` | `results/figures/fig7_mess_dinners.png` |
+| Verification checks (Section 3.6), hypotheses (Section 5) and every number quoted in the text | `checks` and all experiments | `report/generated/numbers.tex`, `results/RESULTS.md` |
 
 ## Results gallery
 
-All figures are produced by `python experiments.py` (figures 1, 4, 7 and 8 below are extra views not used in the
-8-page report).
+All figures are produced by `python experiments.py` (the E1, E4 and "who should see the display" figures below are
+extra views that are not in the report).
 
 | | |
 |---|---|
@@ -116,7 +120,7 @@ DESIGN.md         the design
 ```
 
 All data are synthetic and generated from a fixed seed in a few seconds, so nothing large is stored. Photos on the
-website come from Wikimedia Commons: Countryball mys123 (CC BY 4.0), Freooudzao (CC BY-SA 4.0), BalticServers.com
+website and in the report come from Wikimedia Commons: Countryball mys123 (CC BY 4.0), Freooudzao (CC BY-SA 4.0), BalticServers.com
 (CC BY-SA 3.0), U.S. Air Force / Staff Sgt. Araceli Alarcon (public domain).
 
 ## Team

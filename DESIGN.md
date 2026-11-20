@@ -243,7 +243,7 @@ next 30 minutes from tonight's scans so far: historical profile, or rescaled by 
 
 Figures go to `results/figures/fig1…fig9`, all numbers to `results/RESULTS.md`, the website's data to
 `docs/data.js`, and the report's numbers and tables to `report/generated/` (`numbers.tex`: one macro per number
-quoted in the report; `tab_*.tex`: its tables), so the 8-page report is rebuilt exactly from a run.
+quoted in the report; `tab_*.tex`: its tables), so the report is rebuilt exactly from a run.
 
 ---
 
@@ -265,7 +265,7 @@ crowd-congestion/
 ├── experiments.py         E1–E8 -> results/ and docs/data.js
 ├── results/               figures/*.png and RESULTS.md (generated)
 ├── tests/test_crowd.py    66 checks of every claim
-├── report/                LaTeX report, PRIMEarxiv (main.tex -> main.pdf, 8 pages; generated/ from experiments.py); draft1/
+├── report/                LaTeX report, PRIMEarxiv (main.tex -> main.pdf, 10 pages; generated/ from experiments.py); draft1/
 ├── DESIGN.md              this document
 └── README.md              tour, results, how to run
 ```
