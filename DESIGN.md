@@ -294,11 +294,11 @@ A Telegram bot for one mess (A/B test of the peak-to-average ratio); priority to
 non-monetary reward; choice *between* messes (a routing game with possible Braess effects); other campus
 resources (library, laundry, shuttle); a second scan at the queue entrance to measure waits directly.
 
-## 12. Work split
+## 12. Work split (listed by size of contribution)
 
 | Member | Roll no. | Branch | Package | Files | Experiments |
 |---|---|---|---|---|---|
+| Yash Goyal | 24110399 | CSE | Lead and integration: model and solvers, large-crowd equilibrium, queue lemma and face search, information design (bad days), learners, booking baseline, experiments pipeline, report, website, lab, repository | `game.py`, `correlated.py`, `experiments.py`, `app.py`, `docs/` | E2, E4, E5, E6 |
 | Harsh Kumar Jha | 24110130 | AI | Mess case study (scenario, synthetic scan logs, calibration, forecasting); small crowds solved exactly, noisy app users, random-arrival robustness, bad-day sweeps, paired tests and verification checks | `mess.py`, `smallcrowd.py` | E7, E8 |
-| Yash Goyal | 24110399 | CSE | Bad days and learning: large-crowd solver, information design, Bayes-CE programs, learners; website, lab, repository | `correlated.py`, `app.py`, `docs/` | E5, E6 |
-| Piyush Kumar Keshri | 24110260 | Chemical | Equilibria and correlated equilibrium: small games, solvers, PoA, CE LPs, recommender, Propositions 1–3, queue lemma and face search, reward, who gains | `theory.py`, `game.py`, `correlated.py` | E1, E2, E4 |
-| Garv Singhal | 24110119 | CSE | Simulator and displays: simulator, policies, behaviour, sweeps, delay and swing, booking baseline, the five facilities | `simulate.py`, `domains.py` | E3, E7 |
+| Piyush Kumar Keshri | 24110260 | Chemical | Equilibria and correlated equilibrium: small games, Nash and optimum solvers, CE LPs, recommender, Propositions 1–3, obedience reward, who gains | `theory.py`, `game.py`, `correlated.py` | E1, E2, E4 |
+| Garv Singhal | 24110119 | CSE | Simulator and displays: day-to-day simulator, display policies, behaviour models, sweeps, delay and swing, the five facilities | `simulate.py`, `domains.py` | E3, E7 |

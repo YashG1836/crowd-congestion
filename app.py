@@ -37,11 +37,11 @@ TEAM = [
     ("Harsh Kumar Jha", "24110130", "Artificial Intelligence", "harsh.jha@iitgn.ac.in",
      "Mess case study (synthetic QR-scan data, calibration, forecasting); small crowds solved exactly, noisy users, robustness checks"),
     ("Yash Goyal", "24110399", "Computer Science and Engineering", "yash.g@iitgn.ac.in",
-     "Bad days and information design, learning; website and lab"),
+     "Project lead and integration: solvers, queue lemma, information design, learning; report, website and lab"),
     ("Piyush Kumar Keshri", "24110260", "Chemical Engineering", "piyush.keshri@iitgn.ac.in",
-     "Equilibria: Nash and optimum solvers, correlated-equilibrium LPs, the queue lemma, rewards"),
+     "Equilibria: Nash and optimum solvers, correlated-equilibrium LPs, rewards"),
     ("Garv Singhal", "24110119", "Computer Science and Engineering", "garv.singhal@iitgn.ac.in",
-     "Day-to-day simulator, display policies, booking baseline, cross-facility experiments"),
+     "Day-to-day simulator, display policies, cross-facility experiments"),
 ]
 
 

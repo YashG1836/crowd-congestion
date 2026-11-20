@@ -10,9 +10,9 @@ const POLICY_COLOR = { "no information": "--muted", "public display": "--ne", "d
   "CE advice": "--ce", "optimum as advice": "--pink", "CE advice + reward": "--opt" };
 const TEAM = [
   { name: "Harsh Kumar Jha", roll: "24110130", branch: "Artificial Intelligence", email: "harsh.jha@iitgn.ac.in", role: "Mess case study (synthetic QR-scan data, calibration, forecasting); small crowds solved exactly, noisy users, robustness checks", c: "--ne" },
-  { name: "Yash Goyal", roll: "24110399", branch: "Computer Science and Engineering", email: "yash.g@iitgn.ac.in", role: "Bad days and information design, learning; website and lab", c: "--ce" },
-  { name: "Piyush Kumar Keshri", roll: "24110260", branch: "Chemical Engineering", email: "piyush.keshri@iitgn.ac.in", role: "Equilibria: Nash and optimum solvers, correlated-equilibrium LPs, the queue lemma, rewards", c: "--opt" },
-  { name: "Garv Singhal", roll: "24110119", branch: "Computer Science and Engineering", email: "garv.singhal@iitgn.ac.in", role: "Day-to-day simulator, display policies, booking baseline, cross-facility experiments", c: "--violet" },
+  { name: "Yash Goyal", roll: "24110399", branch: "Computer Science and Engineering", email: "yash.g@iitgn.ac.in", role: "Project lead and integration: solvers, queue lemma, information design, learning; report, website and lab", c: "--ce" },
+  { name: "Piyush Kumar Keshri", roll: "24110260", branch: "Chemical Engineering", email: "piyush.keshri@iitgn.ac.in", role: "Equilibria: Nash and optimum solvers, correlated-equilibrium LPs, rewards", c: "--opt" },
+  { name: "Garv Singhal", roll: "24110119", branch: "Computer Science and Engineering", email: "garv.singhal@iitgn.ac.in", role: "Day-to-day simulator, display policies, cross-facility experiments", c: "--violet" },
 ];
 
 /* ------------------------------------------------------------------ tooltips and SVG helpers */
