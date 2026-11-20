@@ -53,6 +53,9 @@ REGIMES = {
     "noisy": Logit(1.0, 0.3),      # low rationality
 }
 DOMAIN_ORDER = ["road", "network", "restaurant", "gym", "mess"]
+QUEUE_RUNS = 200      # simulated runs of the random-arrival queue (E2)
+FACE_SAMPLES = 3000   # random schedules on the best-response face (E4)
+FACE_ROUNDS = 15      # column-generation rounds on the face (E4)
 SHORT = {"road": "Road", "network": "Network", "restaurant": "Restaurant", "gym": "Gym", "mess": "Mess"}
 POLICY_COLORS = {"no information": viz.MUTED, "public display": viz.NE, "display for 30%": viz.SERIES[3],
                  "CE advice": viz.CE, "optimum as advice": viz.SERIES[4], "CE advice + reward": viz.OPT}
@@ -201,13 +204,14 @@ def e2_selfish() -> None:
         inst, b, *_ = domain(key)
         g = inst.game
         ne, op = b.nash.X, b.optimum.X
-        r_ne, r_op = random_queue_cost(g, ne), random_queue_cost(g, op)
-        s_ne, s_op = random_queue_cost(g, ne, random_service=True), random_queue_cost(g, op, random_service=True)
+        r_ne, r_op = random_queue_cost(g, ne, QUEUE_RUNS), random_queue_cost(g, op, QUEUE_RUNS)
+        s_ne = random_queue_cost(g, ne, QUEUE_RUNS, random_service=True)
+        s_op = random_queue_cost(g, op, QUEUE_RUNS, random_service=True)
         tuned, factor = r_op, 1.0  # the planner plans for a slightly slower counter to leave a buffer
         for f in (0.95, 0.9, 0.85, 0.8):
             g2 = g.with_congestion(FluidQueue(g.congestion.service_rate * f, g.T, g.congestion.slot_minutes))
             x = local_search(g2, round_schedule(g2, continuous_optimum(g2))).X
-            c = random_queue_cost(g, x)
+            c = random_queue_cost(g, x, QUEUE_RUNS)
             if c < tuned:
                 tuned, factor = c, f
         books = [booking(g, 1.0, seed) for seed in range(5)]
@@ -328,7 +332,7 @@ def e4_ce(seeds: int) -> None:
     # --- can ANY correlated equilibrium beat Nash in a large crowd? Search the best-response face
     face = []
     for key in DOMAIN_ORDER:
-        r = face_ce_check(domain(key)[0].game, n_samples=3000, cg_rounds=15)
+        r = face_ce_check(domain(key)[0].game, n_samples=FACE_SAMPLES, cg_rounds=FACE_ROUNDS)
         face.append({"domain": key, "nash": r.nash, "cheapest_on_face": r.cheapest_on_face, "face_dim": r.face_dim,
                      "menu": r.menu, **{f"saving_sec_tol_{60 * t:g}s": v for t, v in r.saving_sec.items()}})
     # --- app users who are noisy (logit) instead of rational; a reward margin on top of Proposition 3
@@ -473,8 +477,10 @@ def e7_mess(seeds: int) -> None:
     now = []
     for meal in MEALS:
         for menu in ("normal", "special"):
-            errs = [nowcast_errors(scans_per_slot(scans, m, meal, menu)) for m in MESSES]
-            now.append({"meal": meal, "menu": menu, **{k: float(np.mean([e[k] for e in errs])) for k in errs[0]}})
+            tables = [scans_per_slot(scans, m, meal, menu) for m in MESSES]
+            errs = [nowcast_errors(t) for t in tables]
+            now.append({"meal": meal, "menu": menu, **{k: float(np.mean([e[k] for e in errs])) for k in errs[0]},
+                        "mean_scans_per_slot": float(np.mean([t.to_numpy().mean() for t in tables]))})
     # --- every mess, meal and day
     roster = make_roster(0)
     meals = []
@@ -526,6 +532,7 @@ def e7_mess(seeds: int) -> None:
                                             burn_in=50, seed=s).metrics["swing"] for s in range(max(3, seeds // 3))])
     info = information_design(g)
     wg = who_gains(g, b.best_nash.X, b.optimum.X)
+    inc_j = obedience_incentive(g, b.optimum.X, b.best_nash.social_cost)
     peak = (g.tau >= 3) & (g.tau <= 6)
     groups = {"flexible students": g.beta == 1.5, "average": g.beta == 3.0, "rigid students": g.beta == 6.0,
               "prefer 20:00-20:30": peak, "prefer other times": ~peak}
@@ -539,7 +546,10 @@ def e7_mess(seeds: int) -> None:
                      "information": {"expected": info.expected, "per_state": info.per_state, "hint": info.hint},
                      "who_gains": gains, "worse_off": {"optimum": wg.worse_off("optimum"),
                                                        "with_reward": wg.worse_off("with_reward")},
-                     "max_loss_sec": 60 * wg.max_loss("optimum"), "budget_pp": wg.budget / g.n}
+                     "max_loss_sec": 60 * wg.max_loss("optimum"), "budget_pp": wg.budget / g.n,
+                     "reward": {"share": inc_j.share_rewarded, "per_person": inc_j.per_person,
+                                "per_rewarded": inc_j.per_person / max(inc_j.share_rewarded, 1e-9),
+                                "tempted": ob_opt.share_tempted}}
 
     # --- figure: data and every meal
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.5), gridspec_kw={"width_ratios": [1.15, 1]})
@@ -633,7 +643,14 @@ def e8_small_crowds() -> None:
         r = large_crowd_bad_day(f, grid=120)
         privacy.append({"n": "large", "capacity": f, "tell_nobody": r.tell_nobody, "announce": r.announce,
                         "best_hint": r.best_hint, "private": r.private, "privacy_gain": r.privacy_gain})
-    SUMMARY["e8"] = {"crowds": rows, "privacy": privacy, "shapes": crowd_shapes()}
+    c10 = SmallCrowd(10)  # why the best CE beats Nash at 10 people (slots: early, peak, late)
+    _, p10 = c10.best_ce()
+    top = np.argsort(-p10)[:2]
+    late, peak_slot = 2, c10.pref
+    mech = {"advice": [c10.M[j].tolist() for j in top], "prob": [float(p10[j]) for j in top],
+            "late_to_peak_gain_min": [float(c10.cost[j, late] - c10.dev[j, late, peak_slot]) for j in top],
+            "nash": c10.M[c10.pure_nash()[0]].tolist()}
+    SUMMARY["e8"] = {"crowds": rows, "privacy": privacy, "shapes": crowd_shapes(), "mechanism": mech}
 
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 3.8), gridspec_kw={"width_ratios": [1.25, 1]})
     df = pd.DataFrame(rows)
@@ -806,6 +823,300 @@ def _jsonable(o):
     return str(o)
 
 
+# =============================================================== the report's numbers and tables
+# Every number quoted in report/main.tex is a macro defined in report/generated/numbers.tex, and the
+# report's main tables are report/generated/tab_*.tex, both written here from SUMMARY. So
+#     python experiments.py && (cd report && tectonic main.tex)
+# reproduces the paper exactly from the code.
+REPORT_GEN = ROOT / "report" / "generated"
+LONG = {"road": "Road: bridge commute", "network": "Network: night backups", "restaurant": "Food court: lunch",
+        "gym": "Gym: after work", "mess": "Mess dinner (generic)"}
+NAME = {"road": "Road", "network": "Network", "restaurant": "Food court", "gym": "Gym", "mess": "Mess"}
+BADDAY = {"road": "a lane closed", "network": "link degraded", "restaurant": "a counter closed",
+          "gym": "machines down", "mess": "staff short"}
+
+
+def _f(v, d: int = 1) -> str:
+    return f"{float(v):.{d}f}"
+
+
+def _range(vals, d: int = 1, d_hi: int | None = None) -> str:
+    vals = [float(v) for v in vals]
+    lo, hi = _f(min(vals), d), _f(max(vals), d if d_hi is None else d_hi)
+    return lo if lo == hi else f"{lo}--{hi}"
+
+
+def _pct(vals, d: int = 0) -> str:
+    return _range([100 * float(v) for v in vals], d)
+
+
+def _p(p: float) -> str:
+    if p >= 0.001:
+        return f"{p:.3f}"
+    m, e = f"{p:.1e}".split("e")
+    return f"${m}\\times10^{{{int(e)}}}$"
+
+
+def _num(x: float) -> str:  # a cost ratio or minutes: 2 decimals below 10, else 1
+    return f"{x:.2f}" if abs(x) < 10 else f"{x:.1f}"
+
+
+def write_report_tex() -> None:
+    s = SUMMARY
+    REPORT_GEN.mkdir(parents=True, exist_ok=True)
+    M: dict[str, str] = {}
+    cfg = s["config"]
+    M["Rseeds"], M["RnoisySeeds"], M["RqueueRuns"] = str(cfg["seeds"]), str(cfg["noisy_seeds"]), str(cfg["queue_runs"])
+    M["RfaceSamples"], M["RfaceRounds"] = f"{cfg['face_samples']:,}", str(cfg["face_rounds"])
+    # ---- E1 small games
+    e1 = s["e1"]
+    M["RdinCounter"] = _f(e1["dinner"]["shared counter"])
+    M["RdinMixed"] = _f(e1["dinner"]["no information (mixed Nash)"])
+    M["RdinCE"] = _f(e1["dinner"]["private coin (CE)"])
+    M["RlightCE"] = _f(e1["intersection"]["best_ce_each"], 2)
+    M["RlightNash"] = _f(e1["intersection"]["best_symmetric_nash"], 2)
+    M["RrmGap"] = _f(e1["learning"]["regret_matching_ce_gap"], 4)
+    # ---- E2 selfish timing and robustness
+    dom = {r["domain"]: r for r in s["e2"]["domains"]}
+    rob = {r["domain"]: r for r in s["e2"]["robust"]}
+    M["RpoaRange"] = _range([dom[k]["poa"] for k in DOMAIN_ORDER])
+    M["RroadNash"], M["RroadOpt"] = _f(dom["road"]["nash"]), _f(dom["road"]["opt"])
+    M["RroadWait"] = _f(dom["road"]["nash_wait"])
+    M["RmessNash"], M["RmessOpt"] = _f(dom["mess"]["nash"]), _f(dom["mess"]["opt"], 2)
+    M["RepsMax"] = _f(max(r["eps_sec"] for r in dom.values()), 0)
+    M["RpoaRandRange"] = _range([rob[k]["nash_random"] / rob[k]["opt_random"] for k in DOMAIN_ORDER])
+    M["RpoaRandServRange"] = _range([rob[k]["nash_random_service"] / rob[k]["opt_random_service"] for k in DOMAIN_ORDER])
+    M["RpoaBufRange"] = _range([rob[k]["nash_random"] / rob[k]["opt_tuned"] for k in DOMAIN_ORDER])
+    M["RbufMax"] = _f(100 * max(1 - rob[k]["tuned_factor"] for k in DOMAIN_ORDER), 0)
+    M["RbookOptRange"] = _range([rob[k]["booking_fluid"] / rob[k]["opt_fluid"] for k in DOMAIN_ORDER])
+    M["RbookNashRange"] = _pct([rob[k]["booking_fluid"] / rob[k]["nash_fluid"] for k in DOMAIN_ORDER])
+    M["RroadBook"] = _f(rob["road"]["booking_fluid"])
+    # ---- E3 public display (and the paired tests)
+    e3 = pd.DataFrame(s["e3"])
+    sel = lambda reg, pol: e3[(e3.regime == reg) & (e3.policy == pol)]
+    disp = sel("reactive", "public display")
+    M["RdispRange"] = f"{disp.vs_nash.min():.1f}--{disp.vs_nash.max():.0f}"
+    M["RdispMax"] = f"{disp.vs_nash.max():.0f}"
+    M["RswingRange"] = _pct(disp.swing)
+    M["RthirtyRange"] = _range(sel("reactive", "display for 30%").vs_nash, 2)
+    M["RcalmDispMax"] = _f(sel("calm", "public display").vs_nash.max())
+    noinfo = e3[e3.policy == "no information"]
+    M["RnoInfoRange"] = _range(noinfo.vs_nash, 2)
+    M["RnoInfoRegret"] = _f(noinfo.regret.max())
+    M["RciPct"] = _f(100 * (e3.ci / e3.cost).max(), 0)
+    M["RceRegret"] = _f(e3[e3.policy == "CE advice"].regret.max(), 2)
+    M["RoptAdvRange"] = _range(e3[e3.policy == "optimum as advice"].vs_nash)
+    tests = pd.DataFrame(s["tests"])
+    dtests = tests[~tests.family.str.contains("margin")]
+    M["RtestN"], M["RtestP"] = str(len(dtests)), _p(dtests.p_holm.max())
+    M["RtestMarginP"] = _p(tests[tests.family.str.contains("margin")].p_holm.max())
+    # ---- E4 correlated advice
+    t4 = {r["domain"]: r for r in s["e4"]["table"]}
+    comp = pd.DataFrame(s["e4"]["compliance"])
+    enough = {k: comp[(comp.domain == k) & (comp.vs_nash <= 1.1)].share.min() for k in DOMAIN_ORDER}
+    M["RcomplRange"], M["RcomplMess"] = _pct(enough.values()), _f(100 * enough["mess"], 0)
+    M["RceGainRange"] = _range([t4[k]["ce_max_gain_sec"] for k in DOMAIN_ORDER], 0)
+    M["RtemptRange"] = _pct([t4[k]["opt_tempted"] for k in DOMAIN_ORDER])
+    gains = [t4[k]["opt_max_gain_min"] for k in DOMAIN_ORDER]
+    M["RoptGainRange"] = f"{min(gains):.1f}--{max(gains):.0f}"
+    M["RrewardRange"] = _range([t4[k]["reward_pp"] for k in DOMAIN_ORDER], 2)
+    M["RsavingRange"] = _range([t4[k]["saving_pp"] for k in DOMAIN_ORDER])
+    M["RbuyRange"] = _range([t4[k]["saving_pp"] / t4[k]["reward_pp"] for k in DOMAIN_ORDER])
+    face = {r["domain"]: r for r in s["e4"]["face"]}
+    tkeys = sorted([c for c in face["road"] if c.startswith("saving_sec_tol_")],
+                   key=lambda c: -float(c[len("saving_sec_tol_"):-1]))
+    M["RwardGap"] = _f(max(t4[k]["large_gap_sec"] for k in DOMAIN_ORDER), 2)
+    M["RfaceDimRange"] = _range([face[k]["face_dim"] for k in DOMAIN_ORDER], 0)
+    M["RfaceMax"] = _f(max(face[k][tkeys[0]] for k in DOMAIN_ORDER), 2)
+    M["RfaceCheapRange"] = _pct([1 - face[k]["cheapest_on_face"] / face[k]["nash"] for k in DOMAIN_ORDER])
+    noisy = {(r["domain"], float(r["lambda"]), r["policy"]): r["vs_nash"] for r in s["e4"]["noisy"]}
+    nz = lambda lam, pol: [noisy[(k, lam, pol)] for k in DOMAIN_ORDER]
+    M["RnoisyCE"] = _range(nz(3.0, "CE advice"), 2)
+    M["RnoisyRzero"] = _range(nz(3.0, "CE advice + reward, margin 0"), 2)
+    M["RnoisyRtwo"] = _range(nz(3.0, "CE advice + reward, margin 2"), 2)
+    M["RnoisyLoneRtwo"] = _range(nz(1.0, "CE advice + reward, margin 2"), 2)
+    M["RoptRel"] = _range([t4[k]["opt"] / t4[k]["nash"] for k in DOMAIN_ORDER], 2)
+    # ---- E5 bad days
+    e5 = s["e5"]
+    ex = {k: e5[k]["expected"] for k in DOMAIN_ORDER}
+    M["RannounceHelp"] = _pct([1 - ex[k]["announce the state"] / ex[k]["tell nobody"] for k in DOMAIN_ORDER
+                               if ex[k]["announce the state"] < ex[k]["tell nobody"]])
+    M["RroadUp"] = _f(100 * (ex["road"]["announce the state"] / ex["road"]["tell nobody"] - 1), 0)
+    M["RroadSilence"], M["RroadAnnounce"] = _f(ex["road"]["tell nobody"]), _f(ex["road"]["announce the state"])
+    ps = e5["road"]["per_state"]
+    M["RroadNormalSilence"] = _f(ps["tell nobody"]["normal"])
+    M["RroadNormalAnnounce"] = _f(ps["announce the state"]["normal"])
+    h = e5["road"]["hint"]
+    M["RhintBad"], M["RhintNormal"] = _f(100 * h["P(busy | bad)"], 0), _f(100 * h["P(busy | normal)"], 0)
+    M["RbeliefLo"], M["RbeliefHi"] = _f(h["belief after quiet"], 2), _f(h["belief after busy"], 2)
+    M["RbadGap"] = _f(max(e5[k]["max_gap_sec"] for k in DOMAIN_ORDER), 0)
+    M["RmenuSize"] = str(e5["road"]["menu"])
+    M["RprivDefault"] = _f(100 * max(1 - ex[k]["private advice"] / ex[k]["best public hint"] for k in DOMAIN_ORDER), 1)
+    sw = pd.DataFrame(s["e5_sweep"])
+    M["RprivFacMax"] = _f(100 * (1 - sw["private advice"] / sw["best public hint"]).max(), 1)
+
+    def cell(k, cap, p):
+        r = sw[(sw.domain == k) & np.isclose(sw.capacity, cap) & np.isclose(sw.p_bad, p)].iloc[0]
+        return r["announce the state"] / r["tell nobody"]
+
+    mild = [cell(k, 0.85, 0.3) for k in DOMAIN_ORDER]
+    severe = {k: cell(k, 0.5, 0.3) for k in DOMAIN_ORDER}
+    back = [k for k in DOMAIN_ORDER if severe[k] > 1]
+    words = {1: "one", 2: "two", 3: "three", 4: "four", 5: "all five"}
+    mild_txt = ("on a mild bad day (85\\% capacity) announcing helps in every facility" if max(mild) < 1 else
+                f"on a mild bad day (85\\% capacity) announcing helps in {sum(m < 1 for m in mild)} of five facilities")
+    sev_txt = (f"on a severe one (50\\%) it backfires in {words.get(len(back), len(back))} of five ("
+               + ", ".join(f"{NAME[k].lower()} {100 * (severe[k] - 1):+.0f}\\%" for k in back) + ")") if back else \
+        "on a severe one (50\\%) it never backfires"
+    road_p = [(p, cell("road", 0.7, p)) for p in (0.1, 0.3, 0.5)]
+    every = all(v > 1 for _, v in road_p)
+    road_txt = (("on the road it backfires at every probability we tried (" if every else "on the road (")
+                + ", ".join(f"probability {p:g}: {100 * (v - 1):+.0f}\\%" for p, v in road_p) + ")")
+    M["RsweepText"] = f"{mild_txt}; {sev_txt}; and {road_txt}"
+    hint_ok = bool(((sw["private advice"] <= sw["best public hint"] + 1e-6) &
+                    (sw["best public hint"] <= np.minimum(sw["tell nobody"], sw["announce the state"]) + 1e-6)).all())
+    M["RbadSettings"], M["RbadOrderOK"] = str(len(sw)), ("holds" if hint_ok else "FAILS")
+    m50 = sw[(sw.domain == "mess") & np.isclose(sw.capacity, 0.5) & np.isclose(sw.p_bad, 0.3)].iloc[0]
+    M["RmessSevSilence"], M["RmessSevAnnounce"] = _f(m50["tell nobody"]), _f(m50["announce the state"])
+    M["RmessSevHint"] = _f(m50["best public hint"])
+    # ---- E6 learning
+    e6 = pd.DataFrame(s["e6"])
+    rm = e6[e6.learner.str.startswith("Regret")]
+    M["RrmRange"], M["RrmRegretMax"] = _range(rm.vs_nash, 2), _f(rm.swap_regret.max(), 2)
+    M["RexpRegret"] = _range(e6[e6.learner.str.startswith("EXP3")].swap_regret)
+    # ---- E7 the mess
+    e7 = s["e7"]
+    M["Rscans"], M["RhoursLost"] = f"{e7['rows']:,}", _f(e7["hours_lost_per_day"], 0)
+    cal = [r for r in e7["calibration"] if r["queue_forms"]]
+    M["RmuErr"] = _range([100 * abs(r["estimated_mu"] / r["true_mu"] - 1) for r in cal], 0)
+    pref = e7["preferences"]
+    M["RprefExact"] = _pct([pref[m]["exact"] for m in MEALS])
+    M["RprefWithin"] = _pct([pref[m]["within_1_slot"] for m in MEALS])
+    rel = [r[k] / r["mean_scans_per_slot"] for r in e7["nowcast"] for k in ("N0 historical mean", "N1 ratio scaling")]
+    M["RforecastPct"] = _pct(rel)
+    bm = {(r["meal"], r["day"]): r for r in e7["by_meal"]}
+    M["RdinnerLost"], M["RspecialLost"] = _f(bm[("dinner", "normal")]["lost"]), _f(bm[("dinner", "special")]["lost"])
+    jp = {(r["regime"], r["policy"]): r for r in e7["jaiswal"]["policies"]}
+    jc = lambda pol, reg="reactive": _f(jp[(reg, pol)]["cost"], 2)
+    M["RjNash"], M["RjOpt"] = _f(e7["jaiswal"]["nash"], 2), _f(e7["jaiswal"]["opt"], 2)
+    M["RjDisp"], M["RjOld"], M["RjLevels"] = jc("public display"), jc("display 3 dinners old"), jc("display in 3 levels")
+    M["RjNoise"], M["RjForecast"] = jc("display + private noise"), jc("moving-average forecast")
+    M["RjCE"], M["RjReward"] = jc("CE advice"), jc("CE advice + reward")
+    M["RjSwing"] = _f(100 * jp[("reactive", "public display")]["swing"], 0)
+    half = [r["cost"] for r in e7["sweeps"] if r["sweep"] == "share" and r["value"] <= 0.5]
+    M["RjHalf"] = _range(half)
+    swv = e7["swing"]
+    i3, i1, j4 = swv["revise"].index(0.3), swv["revise"].index(1.0), swv["delays"].index(4)
+    M["RjSwingLo"], M["RjSwingHi"] = _f(100 * swv["values"][i3][0], 0), _f(100 * swv["values"][i3][j4], 0)
+    M["RswingAllLo"], M["RswingAllHi"] = _f(100 * swv["values"][i1][0], 0), _f(100 * swv["values"][i1][-1], 0)
+    wgr = {r["group"]: r for r in e7["who_gains"]}
+    M["RjFlexible"] = _f(wgr["flexible students"]["with_reward"], 2)
+    M["RjWorse"], M["RjMaxLoss"] = str(e7["worse_off"]["optimum"]), _f(e7["max_loss_sec"], 0)
+    M["RjWorseReward"], M["RjBudget"] = str(e7["worse_off"]["with_reward"]), _f(e7["budget_pp"], 2)
+    M["RjRewardShare"], M["RjRewardEach"] = _f(100 * e7["reward"]["share"], 0), _f(e7["reward"]["per_rewarded"])
+    inf = e7["information"]
+    M["RjInfoSilence"], M["RjInfoAnnounce"] = _f(inf["expected"]["tell nobody"], 2), _f(inf["expected"]["announce the state"], 2)
+    M["RjNormalSilence"] = _f(inf["per_state"]["tell nobody"]["normal"], 2)
+    M["RjNormalAnnounce"] = _f(inf["per_state"]["announce the state"]["normal"], 2)
+    # ---- E8 small crowds, solved exactly
+    e8 = s["e8"]
+    cr = {int(r["n"]): r for r in e8["crowds"]}
+    has = [r for r in e8["crowds"] if r["best_pure_nash"] is not None]
+    M["RceBeats"] = str(sum(r["best_ce"] < r["best_pure_nash"] - 1e-9 for r in has))
+    M["RceSizes"], M["RnMax"] = str(len(has)), str(max(cr))
+    t10, t60 = cr[10], cr[max(cr)]
+    M["RtenCE"], M["RtenNash"], M["RtenOpt"] = _f(t10["best_ce"], 2), _f(t10["best_pure_nash"], 2), _f(t10["optimum"], 2)
+    gap = lambda r: (r["best_pure_nash"] - r["best_ce"]) / (r["best_pure_nash"] - r["optimum"])
+    M["RgapTen"], M["RgapSixty"] = _f(100 * gap(t10), 0), _f(100 * gap(t60), 0)
+    none = [str(int(r["n"])) for r in e8["crowds"] if r["best_pure_nash"] is None]
+    M["RnoPure"] = (", ".join(none[:-1]) + " and " + none[-1]) if len(none) > 1 else (none[0] if none else "no")
+    M["RmixTen"], M["RmixSixtyRatio"] = _f(t10["mixed_nash"], 2), _f(t60["mixed_nash"] / t60["best_ce"], 2)
+    mech = e8["mechanism"]
+    M["RmechA"], M["RmechB"] = "/".join(map(str, mech["advice"][0])), "/".join(map(str, mech["advice"][1]))
+    M["RmechAp"], M["RmechBp"] = _f(100 * mech["prob"][0], 0), _f(100 * mech["prob"][1], 0)
+    M["RmechNash"] = "/".join(map(str, mech["nash"]))
+    M["RmechGain"], M["RmechLoss"] = _f(60 * mech["late_to_peak_gain_min"][0], 0), _f(-mech["late_to_peak_gain_min"][1], 1)
+    shp = pd.DataFrame(e8["shapes"])
+    beat, worse, mix = 0, 0, []
+    for _, sub in shp.groupby("shape", sort=False):
+        hh = sub.dropna(subset=["pure_nash"])
+        beat += int((hh.best_ce < hh.pure_nash - 1e-9).any())
+        worse += int((hh.best_ce > hh.pure_nash + 1e-9).sum())
+        vm = sub.dropna(subset=["mixed"])
+        mix += list(1 - vm.best_ce / vm.mixed)
+    M["RshapesN"], M["RshapesBeat"], M["RshapesWorse"] = str(shp["shape"].nunique()), str(beat), str(worse)
+    M["RshapesMix"] = _pct(mix)
+    pr = e8["privacy"]
+    small = lambda cap: [r["privacy_gain"] for r in pr if r["n"] != "large" and np.isclose(r["capacity"], cap)]
+    lim = {round(float(r["capacity"]), 2): r["privacy_gain"] for r in pr if r["n"] == "large"}
+    M["RprivSmallSeventy"], M["RprivSmallFifty"] = _pct(small(0.7)), _pct(small(0.5))
+    M["RlimSeventy"], M["RlimFifty"] = _f(100 * lim[0.7]), _f(100 * lim[0.5])
+    # ---- verification checks
+    ch = s["checks"]
+    M["RmonoN"], M["RmonoMin"] = f"{ch['monotone_samples']:,}", f"{ch['monotone_min']:.1g}"
+    M["RevenGap"], M["RexactDiff"] = _f(ch["even_arrivals_vs_fluid_min"], 3), f"{ch['exact_vs_full_lp']:.1g}"
+
+    out = ["% generated by `python experiments.py` -- do not edit by hand"]
+    out += [f"\\newcommand{{\\{k}}}{{{v}}}" for k, v in M.items()]
+    (REPORT_GEN / "numbers.tex").write_text("\n".join(out) + "\n")
+
+    def table(name, spec, header, rows, extra=""):
+        body = "\n".join(rows)
+        (REPORT_GEN / f"{name}.tex").write_text(
+            f"% generated by `python experiments.py`\n\\begin{{tabular}}{{{spec}}}\\toprule\n{header}\\\\\\midrule\n"
+            f"{body}\n\\bottomrule{extra}\n\\end{{tabular}}\n")
+
+    table("tab_domains", "@{}lrrrrrrrl@{}",
+          "Facility & People & Slot & $\\mu$/min & Selfish & Planner & PoA & PoA, random & Bad day",
+          [f"{LONG[k]} & {dom[k]['people']} {dom[k]['unit']} & {dom[k]['slot_min']:g}\\,min & "
+           f"{dom[k]['service_rate']:g} & {dom[k]['nash']:.2f} & {dom[k]['opt']:.2f} & {dom[k]['poa']:.1f} & "
+           f"{rob[k]['nash_random'] / rob[k]['opt_tuned']:.1f} & {BADDAY[k]}\\\\" for k in DOMAIN_ORDER])
+    tl = [f"{1000 * float(c[len('saving_sec_tol_'):-1]):g}\\,ms" for c in tkeys]
+    ms = lambda v: f"{1000 * v:.2f}" if 1000 * v >= 0.1 else f"{1000 * v:.3f}"
+    table("tab_ce", "@{}lrrrrrrrr@{}",
+          " & \\multicolumn{2}{c}{real game} & \\multicolumn{3}{c}{large crowd: best-response face} & "
+          "\\multicolumn{3}{c}{best-CE saving (ms) at tolerance}\\\\\n"
+          "\\cmidrule(lr){2-3}\\cmidrule(lr){4-6}\\cmidrule(l){7-9}\n"
+          "Facility & Nash & best CE & Nash & dimension & cheapest & " + " & ".join(tl),
+          [f"{NAME[k]} & {t4[k]['nash']:.2f} & {t4[k]['best_ce_atomic']:.2f} & {face[k]['nash']:.2f} & "
+           f"{face[k]['face_dim']} & {face[k]['cheapest_on_face']:.2f} & " + " & ".join(ms(face[k][c]) for c in tkeys)
+           + "\\\\" for k in DOMAIN_ORDER])
+    table("tab_advice", "@{}lrrrrrrrr@{}",
+          " & \\multicolumn{4}{c}{price of obedience (rational users)} & "
+          "\\multicolumn{4}{c}{noisy users ($\\lambda=3$), cost / Nash}\\\\\n\\cmidrule(lr){2-5}\\cmidrule(l){6-9}\n"
+          "Facility & tempted & reward & saving & worse off & CE advice & + reward & + reward, margin 2 & planner",
+          [f"{NAME[k]} & {100 * t4[k]['opt_tempted']:.0f}\\% & {t4[k]['reward_pp']:.2f} & {t4[k]['saving_pp']:.2f} & "
+           f"{t4[k]['worse_off_opt']} / {t4[k]['worse_off_reward']} & {noisy[(k, 3.0, 'CE advice')]:.2f} & "
+           f"{noisy[(k, 3.0, 'CE advice + reward, margin 0')]:.2f} & "
+           f"{noisy[(k, 3.0, 'CE advice + reward, margin 2')]:.2f} & {t4[k]['opt'] / t4[k]['nash']:.2f}\\\\"
+           for k in DOMAIN_ORDER])
+    rows = []
+    for k in DOMAIN_ORDER:
+        e = ex[k]
+        ann = f"{e['announce the state']:.2f}"
+        if e["announce the state"] > e["tell nobody"]:
+            ann = f"\\textcolor{{cNE}}{{{ann}}}"
+        hk = e5[k]["hint"]
+        rows.append(f"{NAME[k]} & {e['tell nobody']:.2f} & {ann} & {e['best public hint']:.2f} & "
+                    f"{e['private advice']:.2f} & {100 * hk['P(busy | bad)']:.0f}\\% / {100 * hk['P(busy | normal)']:.0f}\\% & "
+                    f"{e['planner, informed']:.2f}\\\\")
+    table("tab_bad", "@{}lrrrrrr@{}", "Facility & Tell nobody & Announce & Best public hint & Private advice & "
+          "``Busy'' on bad / normal days & Planner", rows)
+    calib = {(r["meal"], r["menu"]): r for r in e7["calibration"]}
+    nowc = {(r["meal"], r["menu"]): r for r in e7["nowcast"]}
+    est = lambda r: f"{r['estimated_mu']:.1f}" + ("$^{\\dagger}$" if not r["queue_forms"] else "")
+    best = lambda r: min(r["N0 historical mean"], r["N1 ratio scaling"])
+    table("tab_data", "@{}lrrrrr@{}",
+          "Meal (normal / special) & true $\\mu$ & estimated $\\mu$ & favourite slot: exact / within 1 & "
+          "scans per slot & forecast error",
+          [f"{m.capitalize()} & {calib[(m, 'normal')]['true_mu']:.1f} / {calib[(m, 'special')]['true_mu']:.1f} & "
+           f"{est(calib[(m, 'normal')])} / {est(calib[(m, 'special')])} & "
+           f"{100 * pref[m]['exact']:.1f}\\% / {100 * pref[m]['within_1_slot']:.1f}\\% & "
+           f"{nowc[(m, 'normal')]['mean_scans_per_slot']:.1f} / {nowc[(m, 'special')]['mean_scans_per_slot']:.1f} & "
+           f"{best(nowc[(m, 'normal')]):.1f} / {best(nowc[(m, 'special')]):.1f}\\\\" for m in MEALS],
+          "\n\\multicolumn{6}{@{}l}{\\footnotesize $^{\\dagger}$No queue forms, so the scans give only a lower bound.}")
+
+
 # =============================================================== RESULTS.md
 def md(df: pd.DataFrame, digits: int = 3) -> str:
     return df.round(digits).to_markdown(index=False)
@@ -887,6 +1198,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--quick", action="store_true", help="5 seeds instead of 30")
     seeds = 5 if ap.parse_args().quick else 30
+    SUMMARY["config"] = {"seeds": seeds, "noisy_seeds": max(3, seeds // 3), "queue_runs": QUEUE_RUNS,
+                         "face_samples": FACE_SAMPLES, "face_rounds": FACE_ROUNDS}
     FIG.mkdir(parents=True, exist_ok=True)
     viz.style()
     steps = [("E1 small games", e1_small_games), ("E2 selfish timing", e2_selfish),
@@ -900,7 +1213,8 @@ def main() -> None:
         fn()
         print(f"{name:20s} done in {time.time() - t0:6.1f}s", flush=True)
     write_markdown()
-    print(f"wrote {OUT} and docs/data.js")
+    write_report_tex()
+    print("wrote results/, docs/data.js and report/generated/")
 
 
 if __name__ == "__main__":

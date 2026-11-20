@@ -241,8 +241,9 @@ next 30 minutes from tonight's scans so far: historical profile, or rescaled by 
 | E8 | Small crowds solved exactly | Best CE beats every pure NE in 52/56 sizes (60% of the gap at 10 people), fading with n; privacy on bad days worth several % in small crowds. |
 | E7 | The IITGN mess | 393,747 scans; μ within 2–3%; 132 student-hours lost per normal day; Jaiswal dinner: display 11.55, CE 2.24, CE + reward 0.36; who gains; short-staffed evenings. |
 
-Figures go to `results/figures/fig1…fig9`, all numbers to `results/RESULTS.md`, and the website's data to
-`docs/data.js`.
+Figures go to `results/figures/fig1…fig9`, all numbers to `results/RESULTS.md`, the website's data to
+`docs/data.js`, and the report's numbers and tables to `report/generated/` (`numbers.tex`: one macro per number
+quoted in the report; `tab_*.tex`: its tables), so the 8-page report is rebuilt exactly from a run.
 
 ---
 
@@ -264,7 +265,7 @@ crowd-congestion/
 ├── experiments.py         E1–E8 -> results/ and docs/data.js
 ├── results/               figures/*.png and RESULTS.md (generated)
 ├── tests/test_crowd.py    66 checks of every claim
-├── report/                LaTeX report, PRIMEarxiv (main.tex -> main.pdf); draft1/ = earlier draft
+├── report/                LaTeX report, PRIMEarxiv (main.tex -> main.pdf, 8 pages; generated/ from experiments.py); draft1/
 ├── DESIGN.md              this document
 └── README.md              tour, results, how to run
 ```

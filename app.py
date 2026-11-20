@@ -396,7 +396,7 @@ def page_advice() -> None:
                         ("best CE (atomic, with tolerance)", f"{atomic.expected_cost / n:.3f}", None),
                         ("best CE (large crowd, exact)", f"{lc.best_ce:.3f}", f"large-crowd Nash {lc.nash:.3f}"),
                         ("planner", f"{b.optimum.social_cost / n:.3f}", None)])
-        st.caption("In a large crowd no correlated equilibrium beats Nash (report, Section 5.4: the queue is monotone, "
+        st.caption("In a large crowd no correlated equilibrium beats Nash (report, Sections 3.2 and 4.3: the queue is monotone, "
                    "and a search of the remaining candidates finds none). In small crowds it can (see 'Small crowds, "
                    "solved exactly' on page 1). Advice coordinates; a reward is needed to do better.")
     with t2:

@@ -266,14 +266,14 @@ Worse off than Nash: optimum without reward 36 students (by at most 3.0 s), with
 
 Nowcasting MAE (scans per slot):
 
-| meal      | menu    |   N0 historical mean |   N1 ratio scaling |
-|:----------|:--------|---------------------:|-------------------:|
-| breakfast | normal  |                3.89  |              3.38  |
-| breakfast | special |                3.638 |              3.736 |
-| lunch     | normal  |                4.021 |              4.05  |
-| lunch     | special |                3.364 |              3.564 |
-| dinner    | normal  |                4.413 |              4.576 |
-| dinner    | special |                4.371 |              3.635 |
+| meal      | menu    |   N0 historical mean |   N1 ratio scaling |   mean_scans_per_slot |
+|:----------|:--------|---------------------:|-------------------:|----------------------:|
+| breakfast | normal  |                3.89  |              3.38  |                27.733 |
+| breakfast | special |                3.638 |              3.736 |                30.949 |
+| lunch     | normal  |                4.021 |              4.05  |                39.47  |
+| lunch     | special |                3.364 |              3.564 |                41.588 |
+| dinner    | normal  |                4.413 |              4.576 |                41.469 |
+| dinner    | special |                4.371 |              3.635 |                42.97  |
 
 ## E8 Small crowds solved exactly (identical people, 3 slots, load 0.8)
 
